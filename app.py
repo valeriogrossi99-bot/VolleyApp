@@ -1,6 +1,5 @@
 import glob
 import os
-import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -11,23 +10,25 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# --- CSS PERSONALIZZATO E FORZATURA ICONA PWA NATIVA ---
 st.markdown(
     """
     <head>
-        <link rel="manifest" href="manifest.json">
-        <meta name="theme-color" content="#2563eb">
-        <meta name="apple-mobile-web-app-capable" yes>
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <!-- Icona ufficiale Cuneo Volley forzata direttamente per i dispositivi mobili -->
         <link rel="apple-touch-icon" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10">
+        <link rel="shortcut icon" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="theme-color" content="#2563eb">
     </head>
-""",
-    unsafe_allow_html=True,
-)
-
-# --- CSS PERSONALIZZATO CON SFONDO BIANCO E COLORI CUNEO VOLLEY ---
-st.markdown(
-    """
+    
     <style>
+    /* Rimozione elementi grafici di Streamlit per interfaccia pulita */
+    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
     .stApp {
         background-color: #ffffff;
         color: #1f2937;
