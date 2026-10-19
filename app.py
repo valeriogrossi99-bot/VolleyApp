@@ -159,12 +159,31 @@ player_info = {
     },
 }
 
-# Elenco date delle partite (MATCH DAY) in formato 'YYYY-MM-DD'
-# Puoi aggiungere qui tutte le date dei match ufficiali
+# --- CALENDARIO UFFICIALE MATCH DAY CUNEO VOLLEY (SUPERLEGA 2026/2027) ---
 MATCH_DAYS = {
-    "2026-10-15",
-    "2026-10-18",
-}  # Esempio di date match day (modificabili/ampliabili)
+    "2026-10-18",  # 1ª Giornata: Cuneo - Perugia
+    "2026-10-25",  # 2ª Giornata: Milano - Cuneo
+    "2026-11-01",  # 3ª Giornata: Cuneo - Lube Civitanova
+    "2026-11-04",  # 4ª Giornata: Cuneo - Vero Volley Monza
+    "2026-11-08",  # 5ª Giornata: Prata di Pordenone - Cuneo
+    "2026-11-22",  # 6ª Giornata: Cuneo - Rana Verona
+    "2026-11-29",  # 7ª Giornata: Padova - Cuneo
+    "2026-12-02",  # 8ª Giornata: Modena - Cuneo
+    "2026-12-06",  # 9ª Giornata: Cuneo - Piacenza
+    "2026-12-13",  # 10ª Giornata: Cisterna - Cuneo
+    "2026-12-20",  # 11ª Giornata: Trentino - Cuneo
+    "2026-12-26",  # 12ª Giornata (Ritorno): Cuneo - Modena
+    "2027-01-03",  # 13ª Giornata: Lube Civitanova - Cuneo
+    "2027-01-10",  # 14ª Giornata: Cuneo - Milano
+    "2027-01-13",  # 15ª Giornata: Cuneo - Trentino
+    "2027-01-17",  # 16ª Giornata: Verona - Cuneo
+    "2027-01-24",  # 17ª Giornata: Monza - Cuneo
+    "2027-01-31",  # 18ª Giornata: Cuneo - Prata di Pordenone
+    "2027-02-14",  # 19ª Giornata: Perugia - Cuneo
+    "2027-02-21",  # 20ª Giornata: Cuneo - Padova
+    "2027-02-24",  # 21ª Giornata: Piacenza - Cuneo
+    "2027-02-28",  # 22ª Giornata: Cuneo - Cisterna
+}
 
 ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
 
@@ -209,7 +228,7 @@ def load_all_sessions():
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
   df["WEEK"] = get_custom_week(df["DATE_DT"])
 
-  # Assegnazione flag Match Day
+  # Assegnazione automatica del Match Day basata sul calendario ufficiale Lega Pallavolo
   df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
 
   return df
