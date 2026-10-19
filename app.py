@@ -5,17 +5,16 @@ import streamlit as st
 
 # Configurazione della pagina
 st.set_page_config(
-    page_title="Volley Performance Dashboard",
+    page_title="Volley Performance App",
     page_icon="🏐",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# --- CSS PERSONALIZZATO PER GRAFICA MODERNA ---
+# --- CSS PERSONALIZZATO PER GRAFICA E PLAYER CARD ---
 st.markdown(
     """
     <style>
-    /* Sfondo generale e card delle metriche */
     div[data-testid="stMetric"] {
         background-color: #1E222D;
         border: 1px solid #2A2E3D;
@@ -23,28 +22,18 @@ st.markdown(
         border-radius: 12px;
         box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
     }
-    
     div[data-testid="stMetric"] label {
         color: #8B949E !important;
         font-size: 0.9rem !important;
         font-weight: 600;
     }
-    
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         color: #58A6FF !important;
         font-weight: 700 !important;
     }
-
-    /* Stile della barra laterale */
     section[data-testid="stSidebar"] {
         background-color: #161B22;
         border-right: 1px solid #30363D;
-    }
-
-    /* Schede / Tab stili */
-    button[data-baseweb="tab"] {
-        font-weight: 600;
-        font-size: 1rem;
     }
     </style>
 """,
@@ -52,26 +41,42 @@ st.markdown(
 )
 
 st.title("🏐 Volley Performance Dashboard")
-st.caption("Monitoraggio carichi e analisi dinamica dei salti")
+st.caption("Monitoraggio carichi e analisi dinamica dei salti - Sola Lettura")
 
 # --- ROSTER UFFICIALE E RUOLI ---
 ruoli_dict = {
-    # Palleggiatori
     "Bryan Argilagos": "Palleggiatore",
     "Manuel Coscione": "Palleggiatore",
-    # Schiacciatori
     "Alexandre Strehlau": "Schiacciatore",
     "Ethan Champlin": "Schiacciatore",
     "Federico Giraudo": "Schiacciatore",
     "Poriya Khanzadeh": "Schiacciatore",
-    # Opposti
     "Nathan Feral": "Opposto",
     "Lorenzo Sala": "Opposto",
-    # Centrali
     "Emanuele Barberio": "Centrale",
     "Leandro Mosca": "Centrale",
     "Lorenzo Codarin": "Centrale",
     "Nicoló Volpe": "Centrale",
+}
+
+# (Facoltativo) Link di riferimento o immagini ufficiali dei giocatori
+# Puoi inserire qui i link diretti alle foto o ai profili
+player_info = {
+    "Bryan Argilagos": {
+        "maglia": "#",
+        "bio": "Palleggiatore - Classe 2007",
+    },
+    "Manuel Coscione": {"maglia": "#", "bio": "Palleggiatore - Classe 1980"},
+    "Alexandre Strehlau": {"maglia": "#", "bio": "Schiacciatore - Classe 2004"},
+    "Ethan Champlin": {"maglia": "#", "bio": "Schiacciatore - Classe 2001"},
+    "Federico Giraudo": {"maglia": "#", "bio": "Schiacciatore - Classe 2007"},
+    "Poriya Khanzadeh": {"maglia": "#", "bio": "Schiacciatore - Classe 2004"},
+    "Nathan Feral": {"maglia": "#", "bio": "Opposto - Classe 2003"},
+    "Lorenzo Sala": {"maglia": "#", "bio": "Opposto - Classe 2002"},
+    "Emanuele Barberio": {"maglia": "#", "bio": "Centrale - Classe 2007"},
+    "Leandro Mosca": {"maglia": "#", "bio": "Centrale - Classe 2000"},
+    "Lorenzo Codarin": {"maglia": "#", "bio": "Centrale - Classe 1996"},
+    "Nicoló Volpe": {"maglia": "#", "bio": "Centrale - Classe 2003"},
 }
 
 ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
@@ -88,7 +93,6 @@ def get_custom_week(dt_series):
 @st.cache_data
 def load_all_sessions():
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
-
   if not files:
     return pd.DataFrame()
 
@@ -200,14 +204,28 @@ weekly_summary = (
     .reset_index()
 )
 
+# --- PROFILO GIOCATORE / PLAYER CARD ---
+if selected_player != "Tutti":
+  role_val = ruoli_dict.get(selected_player, "Atleta")
+  info_val = player_info.get(selected_player, {}).get("bio", "Cuneo Volley")
+
+  col_avatar, col_info = st.columns([1, 4])
+  with col_avatar:
+    # Mostra un'icona o immagine placeholder personalizzabile
+    st.image(
+        "https://img.icons8.com/color/96/volleyball.png",
+        width=100,
+    )
+  with col_info:
+    st.markdown(f"### 👤 {selected_player}")
+    st.markdown(f"**Ruolo:** `{role_val}` | **Dettagli:** {info_val}")
+    st.markdown(
+        "🔗 [Visulaizza la scheda ufficiale su Cuneo"
+        " Volley](https://cuneovolley.it/prima-squadra/giocatori)"
+    )
+  st.divider()
+
 # --- VISUALIZZAZIONE KPI ---
-st.markdown(
-    f"#### 👤 **Giocatore:** `{selected_player}` | 📌 **Ruolo:**"
-    f" `{selected_role}`"
-)
-
-st.write(" ")
-
 col_g, col_w = st.columns(2)
 
 with col_g:
@@ -261,7 +279,6 @@ tab_giornaliero, tab_settimanale = st.tabs(
 
 with tab_giornaliero:
   col_g1, col_g2, col_g3 = st.columns(3)
-
   with col_g1:
     st.write("**Numero di Salti Giornalieri**")
     if not daily_summary.empty:
@@ -270,7 +287,6 @@ with tab_giornaliero:
               index="DATE_STR", values="SALTI_GIORNO", aggfunc="sum"
           )
       )
-
   with col_g2:
     st.write("**Salto Max Giornaliero (cm)**")
     if not daily_summary.empty:
@@ -279,7 +295,6 @@ with tab_giornaliero:
               index="DATE_STR", values="MAX_GIORNO", aggfunc="max"
           )
       )
-
   with col_g3:
     st.write("**Media Salti Giornaliera (cm)**")
     if not daily_summary.empty:
@@ -291,7 +306,6 @@ with tab_giornaliero:
 
 with tab_settimanale:
   col_w1, col_w2, col_w3 = st.columns(3)
-
   with col_w1:
     st.write("**Numero di Salti Settimanali**")
     if not weekly_summary.empty:
@@ -300,7 +314,6 @@ with tab_settimanale:
               index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
           )
       )
-
   with col_w2:
     st.write("**Salto Max Settimanale (cm)**")
     if not weekly_summary.empty:
@@ -309,7 +322,6 @@ with tab_settimanale:
               index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
           )
       )
-
   with col_w3:
     st.write("**Media Salti Settimanale (cm)**")
     if not weekly_summary.empty:
