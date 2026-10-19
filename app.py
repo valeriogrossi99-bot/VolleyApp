@@ -371,12 +371,21 @@ def load_google_sheet_force():
       url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={ex.replace(' ', '%20')}"
       temp = pd.read_csv(url)
 
-      # Pulizia e rimozione spazi nei nomi delle colonne
+      # Pulisce gli spazi nei nomi delle colonne
       temp.columns = temp.columns.astype(str).str.strip()
 
-      if not temp.empty and "Atleta" in temp.columns:
-        temp["ESERCIZIO"] = ex
-        df_list.append(temp)
+      if not temp.empty:
+        # Se la prima colonna si chiama 'Atleta' o contiene i nomi
+        col_atleta = next(
+            (c for c in temp.columns if "atleta" in c.lower() or c == "Unnamed: 0"),
+            None,
+        )
+        if col_atleta and col_atleta != "Atleta":
+          temp = temp.rename(columns={col_atleta: "Atleta"})
+
+        if "Atleta" in temp.columns:
+          temp["ESERCIZIO"] = ex
+          df_list.append(temp)
     except Exception:
       pass
 
@@ -385,28 +394,30 @@ def load_google_sheet_force():
 
   df = pd.concat(df_list, ignore_index=True)
 
-  # Normalizzazione sicura delle colonne
-  for col in [
-      "BW",
-      "Peso usato",
-      "Reps",
-      "RIR",
-      "1RM Teorico",
-      "1RM/BW",
-      "1RM Ideale",
-  ]:
+  # Pulizia righe vuote o intestazioni ripetute
+  df = df[df["Atleta"].notna() & (df["Atleta"] != "Atleta")].copy()
+
+  # Funzione di pulizia stringhe numeriche (sostituisce virgole con punti)
+  def clean_num(val):
+    if pd.isna(val):
+      return 0.0
+    val_str = str(val).replace(",", ".").strip()
+    try:
+      return float(val_str)
+    except Exception:
+      return 0.0
+
+  # Conversione forzata delle colonne numeriche chiave
+  cols_to_fix = ["BW", "Peso usato", "Reps", "RIR", "1RM Teorico", "1RM/BW", "1RM Ideale"]
+  for col in cols_to_fix:
     if col in df.columns:
-      df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+      df[col] = df[col].apply(clean_num)
     else:
-      df[col] = 0
+      df[col] = 0.0
 
   # Mappatura Nomi Atleti Completi
-  if "Atleta" in df.columns:
-    df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
-    df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
-  else:
-    df["ATHLETE"] = "Sconosciuto"
-    df["ROLE"] = "Altro"
+  df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
+  df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
 
   return df
 
