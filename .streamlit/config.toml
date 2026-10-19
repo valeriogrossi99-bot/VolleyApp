@@ -1,6 +1,0 @@
-[theme]
-primaryColor = "#007AFF"             # Blu elettrico per pulsanti e selettori
-backgroundColor = "#FFFFFF"          # Sfondo scuro elegante
-secondaryBackgroundColor = "#161B22" # Sfondo delle card e della barra laterale
-textColor = "#F0F6FC"                # Testo chiaro ad alta leggibilità
-font = "sans serif"
