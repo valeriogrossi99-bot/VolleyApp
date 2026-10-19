@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# 2. CSS Personalizzato, Sfondo Bianco e Stile Card Home Page
+# 2. CSS Personalizzato, Sfondo Bianco e Card Cliccabili
 st.markdown(
     """
     <head>
@@ -75,35 +75,28 @@ st.markdown(
         font-weight: 700;
     }
 
-    /* Stile per le Card della Home */
-    .module-card {
-        background-color: #f8fafc;
-        border: 2px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 35px 25px;
-        text-align: center;
-        box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.06);
-        transition: transform 0.2s, border-color 0.2s;
-        margin-bottom: 20px;
+    /* TRASFORMAZIONE DEL PULSANTE IN UN RIQUADRO GRANDE CLICCABILE */
+    div.stButton > button {
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
+        border: 2px solid #e2e8f0 !important;
+        border-radius: 20px !important;
+        padding: 40px 20px !important;
+        height: auto !important;
+        width: 100% !important;
+        box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.04) !important;
+        transition: all 0.25s ease-in-out !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
-    .module-card:hover {
-        border-color: #2563eb;
-        transform: translateY(-4px);
-    }
-    .module-icon {
-        font-size: 3.5rem;
-        margin-bottom: 10px;
-    }
-    .module-title {
-        font-size: 1.8rem;
-        font-weight: 800;
-        color: #0f172a;
-        margin-bottom: 8px;
-    }
-    .module-desc {
-        font-size: 0.95rem;
-        color: #64748b;
-        margin-bottom: 0px;
+    
+    div.stButton > button:hover {
+        border-color: #2563eb !important;
+        background-color: #ffffff !important;
+        box-shadow: 0px 10px 24px rgba(37, 99, 235, 0.12) !important;
+        transform: translateY(-4px) !important;
     }
 
     h1, h2, h3 {
@@ -114,7 +107,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Inizializzazione della Sessione di Navigazione (State)
+# 3. Inizializzazione della Sessione di Navigazione
 if "page" not in st.session_state:
   st.session_state.page = "home"
 
@@ -324,7 +317,7 @@ def load_load_data():
 
 
 # ==============================================================================
-# SCHERMATA 1: HOME PAGE GENERALE (LANDING PAGE)
+# SCHERMATA 1: HOME PAGE GENERALE (LANDING PAGE CON QUADRATI CLICCABILI)
 # ==============================================================================
 if st.session_state.page == "home":
   st.write("")
@@ -348,40 +341,27 @@ if st.session_state.page == "home":
   st.write("")
   st.write("")
 
-  # I due quadrati/card principali per selezionare il modulo
+  # I due quadrati/card cliccabili direttamente
   col_card1, col_card2 = st.columns(2)
 
   with col_card1:
-    st.markdown(
-        """
-        <div class="module-card">
-            <div class="module-icon">🚀</div>
-            <div class="module-title">DataJump</div>
-            <p class="module-desc">Monitoraggio Salti, Elevazione & Distribuzione Fasce</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    btn_datajump = st.button(
+        "🚀\n\nDataJump\n\nMonitoraggio Salti, Elevazione & Distribuzione"
+        " Fasce",
+        key="btn_jump",
+        use_container_width=True,
     )
-    if st.button(
-        "Accedi a DataJump 🚀", use_container_width=True, type="primary"
-    ):
+    if btn_datajump:
       st.session_state.page = "datajump"
       st.rerun()
 
   with col_card2:
-    st.markdown(
-        """
-        <div class="module-card">
-            <div class="module-icon">🏋️‍♂️</div>
-            <div class="module-title">DataLoad</div>
-            <p class="module-desc">Monitoraggio Carichi Sala Pesi & Tonnellaggio</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    btn_dataload = st.button(
+        "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi Sala Pesi & Tonnellaggio",
+        key="btn_load",
+        use_container_width=True,
     )
-    if st.button(
-        "Accedi a DataLoad 🏋️‍♂️", use_container_width=True, type="primary"
-    ):
+    if btn_dataload:
       st.session_state.page = "dataload"
       st.rerun()
 
@@ -389,7 +369,6 @@ if st.session_state.page == "home":
 # SCHERMATA 2: MODULO DATAJUMP (MONITORAGGIO SALTI)
 # ==============================================================================
 elif st.session_state.page == "datajump":
-  # Header e Pulsante Torna alla Home
   col_h1, col_h2 = st.columns([8, 2])
   with col_h1:
     st.markdown("### 🚀 **DataJump** — Monitoraggio Salti & Elevazione")
@@ -637,7 +616,6 @@ elif st.session_state.page == "datajump":
 # SCHERMATA 3: MODULO DATALOAD (CARICHI SALA PESI)
 # ==============================================================================
 elif st.session_state.page == "dataload":
-  # Header e Pulsante Torna alla Home
   col_h1, col_h2 = st.columns([8, 2])
   with col_h1:
     st.markdown("### 🏋️‍♂️ **DataLoad** — Monitoraggio Carichi Sala Pesi")
