@@ -1,11 +1,9 @@
 import glob
 import os
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
-# Configurazione della pagina (Sfondo chiaro / Tema pulito)
+# Configurazione della pagina
 st.set_page_config(
     page_title="DataJump - Cuneo Volley",
     page_icon="🛡️",
@@ -17,13 +15,10 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Sfondo generale bianco e testo scuro per massima leggibilità */
     .stApp {
         background-color: #ffffff;
         color: #1f2937;
     }
-    
-    /* Header Stemma Club */
     .header-container {
         display: flex;
         align-items: center;
@@ -32,8 +27,6 @@ st.markdown(
         border-bottom: 2px solid #e5e7eb;
         margin-bottom: 25px;
     }
-
-    /* Card delle metriche (KPI) su sfondo bianco */
     div[data-testid="stMetric"] {
         background-color: #f8fafc;
         border: 1px solid #e2e8f0;
@@ -41,25 +34,19 @@ st.markdown(
         border-radius: 12px;
         box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.05);
     }
-    
     div[data-testid="stMetric"] label {
         color: #475569 !important;
         font-size: 0.95rem !important;
         font-weight: 600;
     }
-    
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         color: #2563eb !important;
         font-weight: 700 !important;
     }
-
-    /* Barra laterale (Sidebar) */
     section[data-testid="stSidebar"] {
         background-color: #f1f5f9;
         border-right: 1px solid #e2e8f0;
     }
-
-    /* Card Profilo Giocatore */
     .player-card {
         background-color: #f8fafc;
         border: 1px solid #e2e8f0;
@@ -68,20 +55,17 @@ st.markdown(
         margin-bottom: 25px;
         box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.05);
     }
-    
     .player-title {
         color: #0f172a;
         font-size: 1.8rem;
         font-weight: 800;
         margin-bottom: 5px;
     }
-
     .player-role {
         color: #2563eb;
         font-size: 1.1rem;
         font-weight: 700;
     }
-    
     h1, h2, h3 {
         color: #0f172a;
     }
@@ -173,7 +157,6 @@ player_info = {
     },
 }
 
-# --- CALENDARIO UFFICIALE MATCH DAY CUNEO VOLLEY (SUPERLEGA 2026/2027) ---
 MATCH_DAYS = {
     "2026-10-18",
     "2026-10-25",
@@ -209,7 +192,6 @@ def get_custom_week(dt_series):
   return "Settimana " + custom_week_num.astype(str)
 
 
-# --- CARICAMENTO AUTOMATICO DATI ---
 @st.cache_data
 def load_all_sessions():
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
@@ -241,8 +223,26 @@ def load_all_sessions():
   df["DATE_DT"] = pd.to_datetime(df["DATE"], errors="coerce")
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
   df["WEEK"] = get_custom_week(df["DATE_DT"])
-
   df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
+
+  # Categorizzazione dei salti nelle fasce richieste
+  def classify_jump(h):
+    try:
+      val = float(h)
+    except Exception:
+      return "Altro"
+    if val < 30:
+      return "JUMPS < 30"
+    elif 30 <= val <= 50:
+      return "JUMPS 30-50"
+    elif 50 < val <= 60:
+      return "JUMPS 50-60"
+    elif 60 < val <= 70:
+      return "JUMPS 60-70"
+    else:
+      return "JUMPS > 70"
+
+  df["JUMP_BAND"] = df["JUMP HEIGHT(cm)"].apply(classify_jump)
 
   return df
 
@@ -327,7 +327,7 @@ weekly_summary = (
     .reset_index()
 )
 
-# --- PROFILO GIOCATORE / PLAYER CARD UFFICIALE ---
+# --- PROFILO GIOCATORE ---
 if selected_player != "Tutti":
   role_val = ruoli_dict.get(selected_player, "Atleta")
   details = player_info.get(selected_player, {})
@@ -348,7 +348,7 @@ if selected_player != "Tutti":
       unsafe_allow_html=True,
   )
 
-# --- VISUALIZZAZIONE KPI ---
+# --- KPI ---
 col_g, col_w = st.columns(2)
 
 with col_g:
@@ -393,12 +393,15 @@ with col_w:
 
 st.divider()
 
-# --- GRAFICI INTERATTIVI CON EVIDENZA MATCH DAY (COLORE ARANCIONE) ---
-st.subheader("📈 Grafici di Andamento Temporale")
-st.caption("🟠 I giorni di Match Day sono evidenziati in arancione.")
+# --- GRAFICI DI ANDAMENTO E DISTRIBUZIONE FASCE DI SALTO ---
+st.subheader("📈 Grafici di Analisi e Andamento Temporale")
 
-tab_giornaliero, tab_settimanale = st.tabs(
-    ["📊 Andamento Giornaliero per Data", "🗓️ Andamento Settimanale di Lavoro"]
+tab_giornaliero, tab_settimanale, tab_fasce = st.tabs(
+    [
+        "📊 Andamento Giornaliero",
+        "🗓️ Andamento Settimanale",
+        "🎯 Distribuzione Fasce di Salto",
+    ]
 )
 
 with tab_giornaliero:
@@ -409,153 +412,61 @@ with tab_giornaliero:
             SALTI_GIORNO=("SALTI_GIORNO", "sum"),
             MAX_GIORNO=("MAX_GIORNO", "max"),
             MEDIA_GIORNO=("MEDIA_GIORNO", "mean"),
-            IS_MATCH=("IS_MATCH", "max"),
         )
         .reset_index()
+        .set_index("DATE_STR")
     )
 
-    chart_df["TIPO_GIORNO"] = chart_df["IS_MATCH"].apply(
-        lambda x: "Match Day 🟠"
-        if x
-        else "Allenamento / Standard 🔵"
-    )
-    colore_mappa = {
-        "Match Day 🟠": "#f97316",
-        "Allenamento / Standard 🔵": "#2563eb",
-    }
-
-    # 1. Grafico a barre: Numero di Salti Giornalieri
     st.markdown("##### 🔵 Numero di Salti Giornalieri")
-    fig_bar = px.bar(
-        chart_df,
-        x="DATE_STR",
-        y="SALTI_GIORNO",
-        color="TIPO_GIORNO",
-        color_discrete_map=colore_mappa,
-        labels={
-            "DATE_STR": "Data Sessione",
-            "SALTI_GIORNO": "Nr. Salti",
-            "TIPO_GIORNO": "Tipo Sessione",
-        },
-    )
-    fig_bar.update_layout(
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="#ffffff",
-        font_color="#1f2937",
-        margin=dict(l=20, r=20, t=20, b=20),
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.bar_chart(chart_df[["SALTI_GIORNO"]])
 
-    # 2. Grafico a linee: Salto Max Giornaliero con pallini arancioni sui Match Day
     st.markdown("##### 🚀 Salto Max Giornaliero (cm)")
-    fig_line_max = px.line(
-        chart_df,
-        x="DATE_STR",
-        y="MAX_GIORNO",
-        markers=True,
-        labels={
-            "DATE_STR": "Data Sessione",
-            "MAX_GIORNO": "Salto Max (cm)",
-        },
-    )
-    fig_line_max.update_traces(
-        line=dict(color="#2563eb", width=3),
-        marker=dict(
-            size=10,
-            color=[
-                "#f97316" if m else "#2563eb" for m in chart_df["IS_MATCH"]
-            ],
-        ),
-    )
-    fig_line_max.update_layout(
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="#ffffff",
-        font_color="#1f2937",
-        margin=dict(l=20, r=20, t=20, b=20),
-    )
-    st.plotly_chart(fig_line_max, use_container_width=True)
+    st.line_chart(chart_df[["MAX_GIORNO"]])
 
-    # 3. Grafico a linee: Media Salti Giornaliera con pallini arancioni sui Match Day
     st.markdown("##### 📊 Media Salti Giornaliera (cm)")
-    fig_line_mean = px.line(
-        chart_df,
-        x="DATE_STR",
-        y="MEDIA_GIORNO",
-        markers=True,
-        labels={
-            "DATE_STR": "Data Sessione",
-            "MEDIA_GIORNO": "Media Salti (cm)",
-        },
-    )
-    fig_line_mean.update_traces(
-        line=dict(color="#2563eb", width=3),
-        marker=dict(
-            size=10,
-            color=[
-                "#f97316" if m else "#2563eb" for m in chart_df["IS_MATCH"]
-            ],
-        ),
-    )
-    fig_line_mean.update_layout(
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="#ffffff",
-        font_color="#1f2937",
-        margin=dict(l=20, r=20, t=20, b=20),
-    )
-    st.plotly_chart(fig_line_mean, use_container_width=True)
+    st.line_chart(chart_df[["MEDIA_GIORNO"]])
 
 with tab_settimanale:
   if not weekly_summary.empty:
-    chart_w = weekly_summary.groupby("WEEK").agg(
-        SALTI_SETTIMANA=("SALTI_SETTIMANA", "sum"),
-        MAX_SETTIMANA=("MAX_SETTIMANA", "max"),
-        MEDIA_SETTIMANA=("MEDIA_SETTIMANA", "mean"),
-    ).reset_index()
+    chart_w = (
+        weekly_summary.groupby("WEEK")
+        .agg(
+            SALTI_SETTIMANA=("SALTI_SETTIMANA", "sum"),
+            MAX_SETTIMANA=("MAX_SETTIMANA", "max"),
+            MEDIA_SETTIMANA=("MEDIA_SETTIMANA", "mean"),
+        )
+        .reset_index()
+        .set_index("WEEK")
+    )
 
     st.markdown("##### 🔵 Numero di Salti Settimanali")
-    fig_w_bar = px.bar(
-        chart_w,
-        x="WEEK",
-        y="SALTI_SETTIMANA",
-        color_discrete_sequence=["#2563eb"],
-    )
-    fig_w_bar.update_layout(
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="#ffffff",
-        font_color="#1f2937",
-        margin=dict(l=20, r=20, t=20, b=20),
-    )
-    st.plotly_chart(fig_w_bar, use_container_width=True)
+    st.bar_chart(chart_w[["SALTI_SETTIMANA"]])
 
     st.markdown("##### 🚀 Salto Max Settimanale (cm)")
-    fig_w_max = px.line(
-        chart_w, x="WEEK", y="MAX_SETTIMANA", markers=True
-    )
-    fig_w_max.update_traces(
-        line=dict(color="#2563eb", width=3), marker=dict(size=10, color="#2563eb")
-    )
-    fig_w_max.update_layout(
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="#ffffff",
-        font_color="#1f2937",
-        margin=dict(l=20, r=20, t=20, b=20),
-    )
-    st.plotly_chart(fig_w_max, use_container_width=True)
+    st.line_chart(chart_w[["MAX_SETTIMANA"]])
 
     st.markdown("##### 📊 Media Salti Settimanale (cm)")
-    fig_w_mean = px.line(
-        chart_w, x="WEEK", y="MEDIA_SETTIMANA", markers=True
+    st.line_chart(chart_w[["MEDIA_SETTIMANA"]])
+
+with tab_fasce:
+  st.markdown("##### 🎯 Distribuzione Volume Salti per Fasce d'Altezza")
+  if not df_filtered.empty:
+    # Conteggio per ciascuna fascia ordinata correttamente
+    band_order = [
+        "JUMPS < 30",
+        "JUMPS 30-50",
+        "JUMPS 50-60",
+        "JUMPS 60-70",
+        "JUMPS > 70",
+    ]
+    band_counts = (
+        df_filtered["JUMP_BAND"]
+        .value_counts()
+        .reindex(band_order, fill_value=0)
     )
-    fig_w_mean.update_traces(
-        line=dict(color="#2563eb", width=3), marker=dict(size=10, color="#2563eb")
-    )
-    fig_w_mean.update_layout(
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="#ffffff",
-        font_color="#1f2937",
-        margin=dict(l=20, r=20, t=20, b=20),
-    )
-    st.plotly_chart(fig_w_mean, use_container_width=True)
+    st.bar_chart(band_counts)
+  else:
+    st.info("Nessun dato disponibile per i filtri selezionati.")
 
 # --- TABELLE DETTAGLIATE ---
 with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
