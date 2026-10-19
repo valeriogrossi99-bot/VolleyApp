@@ -58,13 +58,15 @@ def load_all_sessions():
   df["ATHLETE"] = df["NAME"] + " " + df["SURNAME"]
   df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
 
-  # Conversione Data e Settimana ISO
-  df["DATE_DT"] = pd.to_datetime(df["DATE"])
+  # Conversione Data e Settimana ISO in modo sicuro
+  df["DATE_DT"] = pd.to_datetime(df["DATE"], errors="coerce")
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
+
+  iso_cal = df["DATE_DT"].dt.isocalendar()
   df["WEEK"] = (
-      df["DATE_DT"].dt.year.astype(str)
+      iso_cal["year"].astype(str)
       + "-W"
-      + df["DATE_DT"].dt.isocalendar().week.astype(str).zfill(2)
+      + iso_cal["week"].astype(str).str.zfill(2)
   )
 
   return df
@@ -75,7 +77,7 @@ df = load_all_sessions()
 if df.empty:
   st.warning(
       "⚠️ Nessun file CSV trovato nel repository GitHub. Carica i file nella"
-      " cartella 'data/' per visualizzare i dati."
+      " cartella 'data/' o nella radice del progetto per visualizzare i dati."
   )
   st.stop()
 
@@ -107,7 +109,7 @@ st.sidebar.divider()
 st.sidebar.header("📅 Filtro Temporale")
 
 settimane_list = ["Tutte le settimane"] + sorted(
-    df_filtered["WEEK"].unique().tolist(), reverse=True
+    [w for w in df_filtered["WEEK"].unique() if pd.notna(w)], reverse=True
 )
 selected_week = st.sidebar.selectbox("Settimana ISO", settimane_list)
 
@@ -115,7 +117,7 @@ if selected_week != "Tutte le settimane":
   df_filtered = df_filtered[df_filtered["WEEK"] == selected_week]
 
 sessioni_list = ["Tutte le sessioni"] + sorted(
-    df_filtered["DATE_STR"].unique().tolist(), reverse=True
+    [d for d in df_filtered["DATE_STR"].unique() if pd.notna(d)], reverse=True
 )
 selected_session = st.sidebar.selectbox("Data Sessione", sessioni_list)
 
@@ -125,7 +127,9 @@ if selected_session != "Tutte le sessioni":
 
 # --- CALCOLO METRICHE AVANZATE PER SESSIONE ---
 def calculate_session_metrics(data):
-  # Raggruppa per Atleta, Data e Settimana
+  if data.empty:
+    return pd.DataFrame()
+
   grouped = data.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
 
   # Calcolo dei 5 migliori salti per sessione (AVG Top 5)
@@ -160,11 +164,13 @@ col1, col2, col3, col4, col5 = st.columns(5)
 
 tot_salti_settimana = df_filtered.groupby("WEEK")["JUMP HEIGHT(cm)"].count()
 val_salti_sett = (
-    tot_salti_settimana.iloc[-1] if not tot_salti_settimana.empty else 0
+    tot_salti_settimana.iloc[-1]
+    if not tot_salti_settimana.empty
+    else len(df_filtered)
 )
 
 with col1:
-  st.metric("Salti Settimana Corrente", val_salti_sett)
+  st.metric("Salti Totali (Filtro)", len(df_filtered))
 with col2:
   salti_sess = (
       session_summary["SALTI_SESSIONE"].mean()
@@ -195,7 +201,7 @@ st.subheader("📈 Grafici di Andamento Temporale per Sessione")
 
 tab1, tab2, tab3 = st.tabs([
     "🚀 Salto Max & AVG Top 5",
-    "🔄 Volume Salti (Sessione vs Settimana)",
+    "🔄 Volume Salti (Sessione)",
     "⚡ Impatto Atterraggio (g)",
 ])
 
@@ -207,29 +213,17 @@ with tab1:
     )
     st.line_chart(chart_data)
   else:
-    st.info("Nessun dato disponibile.")
+    st.info("Nessun dato disponibile con i filtri attuali.")
 
 with tab2:
-  st.write("##### Volume Salti per Sessione e Totale Settimanale")
-  col_left, col_right = st.columns(2)
-
-  with col_left:
-    st.write("**Salti Totali per Sessione**")
-    if not session_summary.empty:
-      chart_sess = session_summary.pivot_table(
-          index="DATE_STR", values="SALTI_SESSIONE", aggfunc="sum"
-      )
-      st.bar_chart(chart_sess)
-
-  with col_right:
-    st.write("**Salti Totali per Settimana**")
-    if not df_filtered.empty:
-      weekly_data = (
-          df_filtered.groupby("WEEK")["JUMP HEIGHT(cm)"]
-          .count()
-          .reset_index(name="SALTI_SETTIMANA")
-      )
-      st.bar_chart(weekly_data.set_index("WEEK"))
+  st.write("##### Volume Salti per Sessione")
+  if not session_summary.empty:
+    chart_sess = session_summary.pivot_table(
+        index="DATE_STR", values="SALTI_SESSIONE", aggfunc="sum"
+    )
+    st.bar_chart(chart_sess)
+  else:
+    st.info("Nessun dato disponibile.")
 
 with tab3:
   st.write("##### Andamento dell'Impatto all'Atterraggio (g)")
@@ -238,6 +232,8 @@ with tab3:
         index="DATE_STR", values="AVG_IMPACT", aggfunc="mean"
     )
     st.line_chart(chart_impact)
+  else:
+    st.info("Nessun dato disponibile.")
 
 # --- REGISTRO DETTAGLIATO PER SESSIONE ---
 with st.expander("📋 Tabella Riassuntiva per Sessione"):
