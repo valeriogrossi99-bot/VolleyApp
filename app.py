@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import streamlit as st
 
-# Configurazione della pagina con i colori e logo di Cuneo Volley
+# Configurazione della pagina
 st.set_page_config(
     page_title="DataJump - Cuneo Volley",
     page_icon="🛡️",
@@ -21,6 +21,16 @@ st.markdown(
         color: #f0f6fc;
     }
     
+    /* Header Stemma Club */
+    .header-container {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #1e3a60;
+        margin-bottom: 25px;
+    }
+
     /* Card delle metriche (KPI) */
     div[data-testid="stMetric"] {
         background-color: #152238;
@@ -70,7 +80,6 @@ st.markdown(
         font-weight: 700;
     }
     
-    /* Intestazioni e Testi */
     h1, h2, h3 {
         color: #ffffff;
     }
@@ -79,19 +88,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- HEADER PERSONALIZZATO CON STEMMA E TITOLO DATAJUMP ---
-col_logo, col_title = st.columns([1, 8])
-with col_logo:
-  # Stemma ufficiale / Icona rappresentativa Cuneo Volley
+# --- HEADER UFFICIALE CON STEMMA E TITOLO DATAJUMP ---
+col_shield, col_title = st.columns([1, 10])
+with col_shield:
   st.image(
-      "https://cuneovolley.it/wp-content/uploads/2021/09/cropped-logo-cuneo-volley-32x32.png",
-      width=60,
+      "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10",
+      width=70,
   )
 with col_title:
-  st.title("DataJump")
-  st.caption(
-      "📊 Cuneo Volley — Dashboard Ufficiale Monitoraggio Salti & Carichi"
-      " (Sola Lettura)"
+  st.markdown(
+      """
+        <h1 style="margin: 0; font-size: 2.5rem; color: #ffffff; letter-spacing: 1px;">DataJump</h1>
+        <p style="margin: 0; color: #93c5fd; font-size: 1rem;">Cuneo Volley — Dashboard Ufficiale Monitoraggio Salti & Carichi (Sola Lettura)</p>
+    """,
+      unsafe_allow_html=True,
   )
 
 # --- ROSTER UFFICIALE E RUOLI ---
