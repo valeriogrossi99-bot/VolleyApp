@@ -267,27 +267,30 @@ if df.empty:
   )
   st.stop()
 
-# --- BARRA LATERALE: FILTRI ---
-st.sidebar.header("🔍 Filtri Selezione")
+# --- BARRA LATERALE: FILTRI CONFRONTO MULTIPLO ---
+st.sidebar.header("🔍 Filtri Selezione & Confronto")
 
-ruoli_list = ["Tutti"] + sorted(list(set(ruoli_dict.values())))
-selected_role = st.sidebar.selectbox("Filtra per Ruolo", ruoli_list)
+# Filtro Ruolo
+ruoli_list = sorted(list(set(ruoli_dict.values())))
+selected_roles = st.sidebar.multiselect("Filtra per Ruolo", ruoli_list)
 
-df_role = df[df["ROLE"] == selected_role] if selected_role != "Tutti" else df
+df_filtered = df.copy()
+if selected_roles:
+  df_filtered = df_filtered[df_filtered["ROLE"].isin(selected_roles)]
 
-giocatori_list = sorted(df_role["ATHLETE"].unique())
-selected_player = st.sidebar.selectbox(
-    "Filtra per Giocatore", ["Tutti"] + giocatori_list
+# Filtro Giocatori (permesso confronto multiplo)
+giocatori_list = sorted(df_filtered["ATHLETE"].unique())
+selected_players = st.sidebar.multiselect(
+    "Seleziona Giocatori da Confrontare",
+    giocatori_list,
+    help="Seleziona uno o più giocatori per confrontarli direttamente",
 )
 
-df_filtered = (
-    df_role[df_role["ATHLETE"] == selected_player]
-    if selected_player != "Tutti"
-    else df_role
-)
+if selected_players:
+  df_filtered = df_filtered[df_filtered["ATHLETE"].isin(selected_players)]
 
 st.sidebar.divider()
-st.sidebar.header("📅 Filtro Temporale")
+st.sidebar.header("📅 Filtro Temporale (Sedute & Settimane)")
 
 
 def extract_week_num(w_str):
@@ -302,19 +305,26 @@ unique_weeks = sorted(
     key=extract_week_num,
     reverse=True,
 )
-settimane_list = ["Tutte le settimane"] + unique_weeks
-selected_week = st.sidebar.selectbox("Settimana di Lavoro", settimane_list)
+selected_weeks = st.sidebar.multiselect(
+    "Seleziona Settimane di Lavoro",
+    unique_weeks,
+    help="Puoi selezionare più settimane da confrontare",
+)
 
-if selected_week != "Tutte le settimane":
-  df_filtered = df_filtered[df_filtered["WEEK"] == selected_week]
+if selected_weeks:
+  df_filtered = df_filtered[df_filtered["WEEK"].isin(selected_weeks)]
 
-sessioni_list = ["Tutte le sessioni"] + sorted(
+sessioni_list = sorted(
     [d for d in df_filtered["DATE_STR"].unique() if pd.notna(d)], reverse=True
 )
-selected_session = st.sidebar.selectbox("Data Sessione", sessioni_list)
+selected_sessions = st.sidebar.multiselect(
+    "Seleziona Date/Sedute",
+    sessioni_list,
+    help="Puoi selezionare più date per confrontare le singole sedute",
+)
 
-if selected_session != "Tutte le sessioni":
-  df_filtered = df_filtered[df_filtered["DATE_STR"] == selected_session]
+if selected_sessions:
+  df_filtered = df_filtered[df_filtered["DATE_STR"].isin(selected_sessions)]
 
 # --- ELABORAZIONE DATI ---
 daily_summary = (
@@ -338,35 +348,41 @@ weekly_summary = (
     .reset_index()
 )
 
-# --- PROFILO GIOCATORE ---
-if selected_player != "Tutti":
-  role_val = ruoli_dict.get(selected_player, "Atleta")
-  details = player_info.get(selected_player, {})
-  bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
-  link_val = details.get(
-      "url", "https://cuneovolley.it/prima-squadra/giocatori"
-  )
+# --- PROFILO GIOCATORE / CARD CONFRONTO ---
+if selected_players:
+  if len(selected_players) == 1:
+    p = selected_players[0]
+    role_val = ruoli_dict.get(p, "Atleta")
+    details = player_info.get(p, {})
+    bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
+    link_val = details.get(
+        "url", "https://cuneovolley.it/prima-squadra/giocatori"
+    )
 
-  st.markdown(
-      f"""
-    <div class="player-card">
-        <div class="player-title">🛡️ {selected_player}</div>
-        <div class="player-role">Ruolo: {role_val}</div>
-        <p style="color: #475569; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
-        <a href="{link_val}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
-    </div>
-    """,
-      unsafe_allow_html=True,
-  )
+    st.markdown(
+        f"""
+        <div class="player-card">
+            <div class="player-title">🛡️ {p}</div>
+            <div class="player-role">Ruolo: {role_val}</div>
+            <p style="color: #475569; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
+            <a href="{link_val}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+  else:
+    st.info(
+        f"📊 **Modalità Confronto Attiva**: Stai confrontando **{len(selected_players)} giocatori** ({', '.join(selected_players)})."
+    )
 
-# --- KPI ---
+# --- KPI GENERALE ---
 col_g, col_w = st.columns(2)
 
 with col_g:
-  st.markdown("##### 📅 Dati Giornalieri (Ultima Sessione)")
+  st.markdown("##### 📅 Dati Giornalieri (Selezione Corrente)")
   c1, c2, c3 = st.columns(3)
   salti_g = (
-      daily_summary["SALTI_GIORNO"].iloc[-1]
+      daily_summary["SALTI_GIORNO"].sum()
       if not daily_summary.empty
       else len(df_filtered)
   )
@@ -377,15 +393,15 @@ with col_g:
       daily_summary["MEDIA_GIORNO"].mean() if not daily_summary.empty else 0
   )
 
-  c1.metric("Nr. Salti", f"{salti_g}")
+  c1.metric("Totale Salti", f"{salti_g}")
   c2.metric("Salto Max", f"{max_g:.1f} cm")
   c3.metric("Media Salti", f"{med_g:.1f} cm")
 
 with col_w:
-  st.markdown("##### 🗓️ Dati Settimanali (Ultima Settimana)")
+  st.markdown("##### 🗓️ Dati Settimanali (Selezione Corrente)")
   c4, c5, c6 = st.columns(3)
   salti_w = (
-      weekly_summary["SALTI_SETTIMANA"].iloc[-1]
+      weekly_summary["SALTI_SETTIMANA"].sum()
       if not weekly_summary.empty
       else 0
   )
@@ -398,66 +414,129 @@ with col_w:
       else 0
   )
 
-  c4.metric("Nr. Salti", f"{salti_w}")
+  c4.metric("Totale Salti", f"{salti_w}")
   c5.metric("Salto Max", f"{max_w:.1f} cm")
   c6.metric("Media Salti", f"{med_w:.1f} cm")
 
 st.divider()
 
-# --- GRAFICI DI ANDAMENTO E DISTRIBUZIONE FASCE DI SALTO ---
-st.subheader("📈 Grafici di Analisi e Andamento Temporale")
+# --- GRAFICI DI ANDAMENTO, CONFRONTI E DISTRIBUZIONE ---
+st.subheader("📈 Grafici di Analisi & Confronti")
 
-tab_giornaliero, tab_settimanale, tab_fasce = st.tabs(
-    [
-        "📊 Andamento Giornaliero",
-        "🗓️ Andamento Settimanale",
-        "🎯 Distribuzione Fasce di Salto",
-    ]
-)
+tab_giornaliero, tab_settimanale, tab_confronto, tab_fasce = st.tabs([
+    "📊 Andamento Giornaliero",
+    "🗓️ Andamento Settimanale",
+    "⚔️ Confronto Diretto Giocatori",
+    "🎯 Distribuzione Fasce di Salto",
+])
 
 with tab_giornaliero:
   if not daily_summary.empty:
-    chart_df = (
-        daily_summary.groupby("DATE_STR")
-        .agg(
-            SALTI_GIORNO=("SALTI_GIORNO", "sum"),
-            MAX_GIORNO=("MAX_GIORNO", "max"),
-            MEDIA_GIORNO=("MEDIA_GIORNO", "mean"),
+    st.markdown("##### 🔵 Numero di Salti per Data e Giocatore")
+    chart_bar = (
+        alt.Chart(daily_summary)
+        .mark_bar()
+        .encode(
+            x=alt.X("DATE_STR:N", title="Data Seduta"),
+            y=alt.Y("SALTI_GIORNO:Q", title="Nr. Salti"),
+            color=alt.Color("ATHLETE:N", title="Giocatore"),
+            tooltip=["DATE_STR", "ATHLETE", "SALTI_GIORNO", "MAX_GIORNO"],
         )
-        .reset_index()
-        .set_index("DATE_STR")
+        .properties(height=380)
     )
-
-    st.markdown("##### 🔵 Numero di Salti Giornalieri")
-    st.bar_chart(chart_df[["SALTI_GIORNO"]])
+    st.altair_chart(chart_bar, use_container_width=True)
 
     st.markdown("##### 🚀 Salto Max Giornaliero (cm)")
-    st.line_chart(chart_df[["MAX_GIORNO"]])
-
-    st.markdown("##### 📊 Media Salti Giornaliera (cm)")
-    st.line_chart(chart_df[["MEDIA_GIORNO"]])
+    chart_line_max = (
+        alt.Chart(daily_summary)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("DATE_STR:N", title="Data Seduta"),
+            y=alt.Y("MAX_GIORNO:Q", title="Salto Max (cm)"),
+            color=alt.Color("ATHLETE:N", title="Giocatore"),
+            tooltip=["DATE_STR", "ATHLETE", "MAX_GIORNO"],
+        )
+        .properties(height=380)
+    )
+    st.altair_chart(chart_line_max, use_container_width=True)
 
 with tab_settimanale:
   if not weekly_summary.empty:
-    chart_w = (
-        weekly_summary.groupby("WEEK")
-        .agg(
-            SALTI_SETTIMANA=("SALTI_SETTIMANA", "sum"),
-            MAX_SETTIMANA=("MAX_SETTIMANA", "max"),
-            MEDIA_SETTIMANA=("MEDIA_SETTIMANA", "mean"),
+    st.markdown("##### 🔵 Numero di Salti Settimanali per Giocatore")
+    chart_w_bar = (
+        alt.Chart(weekly_summary)
+        .mark_bar()
+        .encode(
+            x=alt.X("WEEK:N", title="Settimana"),
+            y=alt.Y("SALTI_SETTIMANA:Q", title="Nr. Salti"),
+            color=alt.Color("ATHLETE:N", title="Giocatore"),
+            tooltip=["WEEK", "ATHLETE", "SALTI_SETTIMANA", "MAX_SETTIMANA"],
         )
-        .reset_index()
-        .set_index("WEEK")
+        .properties(height=380)
     )
-
-    st.markdown("##### 🔵 Numero di Salti Settimanali")
-    st.bar_chart(chart_w[["SALTI_SETTIMANA"]])
+    st.altair_chart(chart_w_bar, use_container_width=True)
 
     st.markdown("##### 🚀 Salto Max Settimanale (cm)")
-    st.line_chart(chart_w[["MAX_SETTIMANA"]])
+    chart_w_line = (
+        alt.Chart(weekly_summary)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("WEEK:N", title="Settimana"),
+            y=alt.Y("MAX_SETTIMANA:Q", title="Salto Max (cm)"),
+            color=alt.Color("ATHLETE:N", title="Giocatore"),
+            tooltip=["WEEK", "ATHLETE", "MAX_SETTIMANA"],
+        )
+        .properties(height=380)
+    )
+    st.altair_chart(chart_w_line, use_container_width=True)
 
-    st.markdown("##### 📊 Media Salti Settimanale (cm)")
-    st.line_chart(chart_w[["MEDIA_SETTIMANA"]])
+with tab_confronto:
+  st.markdown("##### ⚔️ Confronto Totale Volume & Max tra Giocatori")
+  if not df_filtered.empty:
+    comp_df = (
+        df_filtered.groupby(["ATHLETE", "ROLE"])
+        .agg(
+            TOT_SALTI=("JUMP HEIGHT(cm)", "count"),
+            MAX_SALTO=("JUMP HEIGHT(cm)", "max"),
+            MEDIA_SALTO=("JUMP HEIGHT(cm)", "mean"),
+        )
+        .reset_index()
+    )
+
+    col_comp1, col_comp2 = st.columns(2)
+
+    with col_comp1:
+      st.write("**Totale Salti per Giocatore**")
+      chart_comp_salti = (
+          alt.Chart(comp_df)
+          .mark_bar(color="#2563eb")
+          .encode(
+              x=alt.X("ATHLETE:N", title="Giocatore", sort="-y"),
+              y=alt.Y("TOT_SALTI:Q", title="Totale Salti"),
+              tooltip=["ATHLETE", "ROLE", "TOT_SALTI"],
+          )
+          .properties(height=350)
+      )
+      st.altair_chart(chart_comp_salti, use_container_width=True)
+
+    with col_comp2:
+      st.write("**Salto Massimo (cm) per Giocatore**")
+      chart_comp_max = (
+          alt.Chart(comp_df)
+          .mark_bar(color="#f97316")
+          .encode(
+              x=alt.X("ATHLETE:N", title="Giocatore", sort="-y"),
+              y=alt.Y("MAX_SALTO:Q", title="Salto Max (cm)"),
+              tooltip=["ATHLETE", "ROLE", "MAX_SALTO"],
+          )
+          .properties(height=350)
+      )
+      st.altair_chart(chart_comp_max, use_container_width=True)
+
+    st.write("**Tabella Sintetica di Confronto**")
+    st.dataframe(comp_df, use_container_width=True)
+  else:
+    st.info("Seleziona almeno un giocatore per visualizzare il confronto.")
 
 with tab_fasce:
   st.markdown("##### 🎯 Distribuzione Volume Salti per Fasce d'Altezza")
@@ -470,19 +549,20 @@ with tab_fasce:
         "JUMPS > 70",
     ]
 
-    counts = df_filtered["JUMP_BAND"].value_counts()
-    band_df = pd.DataFrame({
-        "Fascia": order_list,
-        "Numero Salti": [counts.get(b, 0) for b in order_list],
-    })
+    band_comp = (
+        df_filtered.groupby(["JUMP_BAND", "ATHLETE"])
+        .size()
+        .reset_index(name="Numero Salti")
+    )
 
     chart_altair = (
-        alt.Chart(band_df)
-        .mark_bar(color="#2563eb")
+        alt.Chart(band_comp)
+        .mark_bar()
         .encode(
-            x=alt.X("Fascia:N", sort=order_list, title="Fascia di Salto"),
+            x=alt.X("JUMP_BAND:N", sort=order_list, title="Fascia di Salto"),
             y=alt.Y("Numero Salti:Q", title="Conteggio Salti"),
-            tooltip=["Fascia", "Numero Salti"],
+            color=alt.Color("ATHLETE:N", title="Giocatore"),
+            tooltip=["JUMP_BAND", "ATHLETE", "Numero Salti"],
         )
         .properties(height=400)
     )
