@@ -1,6 +1,8 @@
 import glob
 import os
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 # Configurazione della pagina
@@ -15,13 +17,10 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Colori generali e sfondo ispirati al Cuneo Volley (Blu Notte e Azzurro) */
     .stApp {
         background-color: #0b1329;
         color: #f0f6fc;
     }
-    
-    /* Header Stemma Club */
     .header-container {
         display: flex;
         align-items: center;
@@ -30,8 +29,6 @@ st.markdown(
         border-bottom: 2px solid #1e3a60;
         margin-bottom: 25px;
     }
-
-    /* Card delle metriche (KPI) */
     div[data-testid="stMetric"] {
         background-color: #152238;
         border: 1px solid #1e3a60;
@@ -39,25 +36,19 @@ st.markdown(
         border-radius: 12px;
         box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
     }
-    
     div[data-testid="stMetric"] label {
         color: #93c5fd !important;
         font-size: 0.95rem !important;
         font-weight: 600;
     }
-    
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         color: #60a5fa !important;
         font-weight: 700 !important;
     }
-
-    /* Barra laterale (Sidebar) */
     section[data-testid="stSidebar"] {
         background-color: #0d172e;
         border-right: 1px solid #1e3a60;
     }
-
-    /* Card Profilo Giocatore */
     .player-card {
         background-color: #152238;
         border: 1px solid #1e3a60;
@@ -66,20 +57,17 @@ st.markdown(
         margin-bottom: 25px;
         box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.5);
     }
-    
     .player-title {
         color: #ffffff;
         font-size: 1.8rem;
         font-weight: 800;
         margin-bottom: 5px;
     }
-
     .player-role {
         color: #60a5fa;
         font-size: 1.1rem;
         font-weight: 700;
     }
-    
     h1, h2, h3 {
         color: #ffffff;
     }
@@ -171,6 +159,13 @@ player_info = {
     },
 }
 
+# Elenco date delle partite (MATCH DAY) in formato 'YYYY-MM-DD'
+# Puoi aggiungere qui tutte le date dei match ufficiali
+MATCH_DAYS = {
+    "2026-10-15",
+    "2026-10-18",
+}  # Esempio di date match day (modificabili/ampliabili)
+
 ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
 
 
@@ -213,6 +208,9 @@ def load_all_sessions():
   df["DATE_DT"] = pd.to_datetime(df["DATE"], errors="coerce")
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
   df["WEEK"] = get_custom_week(df["DATE_DT"])
+
+  # Assegnazione flag Match Day
+  df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
 
   return df
 
@@ -282,6 +280,7 @@ daily_summary = (
         SALTI_GIORNO=("JUMP HEIGHT(cm)", "count"),
         MAX_GIORNO=("JUMP HEIGHT(cm)", "max"),
         MEDIA_GIORNO=("JUMP HEIGHT(cm)", "mean"),
+        IS_MATCH=("IS_MATCH", "max"),
     )
     .reset_index()
 )
@@ -362,56 +361,169 @@ with col_w:
 
 st.divider()
 
-# --- GRAFICI IN LINEA (DISPOSTI UNO SOTTO L'ALTRO) ---
+# --- GRAFICI INTERATTIVI CON EVIDENZA MATCH DAY (COLORE ARANCIONE) ---
 st.subheader("📈 Grafici di Andamento Temporale")
+st.caption("🟠 I giorni di Match Day sono evidenziati in arancione.")
 
 tab_giornaliero, tab_settimanale = st.tabs(
     ["📊 Andamento Giornaliero per Data", "🗓️ Andamento Settimanale di Lavoro"]
 )
 
 with tab_giornaliero:
-  st.markdown("##### 🔵 Numero di Salti Giornalieri")
   if not daily_summary.empty:
-    chart_salti_g = daily_summary.pivot_table(
-        index="DATE_STR", values="SALTI_GIORNO", aggfunc="sum"
+    chart_df = (
+        daily_summary.groupby("DATE_STR")
+        .agg(
+            SALTI_GIORNO=("SALTI_GIORNO", "sum"),
+            MAX_GIORNO=("MAX_GIORNO", "max"),
+            MEDIA_GIORNO=("MEDIA_GIORNO", "mean"),
+            IS_MATCH=("IS_MATCH", "max"),
+        )
+        .reset_index()
     )
-    st.bar_chart(chart_salti_g)
 
-  st.markdown("##### 🚀 Salto Max Giornaliero (cm)")
-  if not daily_summary.empty:
-    chart_max_g = daily_summary.pivot_table(
-        index="DATE_STR", values="MAX_GIORNO", aggfunc="max"
+    chart_df["TIPO_GIORNO"] = chart_df["IS_MATCH"].apply(
+        lambda x: "Match Day 🟠"
+        if x
+        else "Allenamento / Standard 🔵"
     )
-    st.line_chart(chart_max_g)
+    colore_mappa = {
+        "Match Day 🟠": "#f97316",
+        "Allenamento / Standard 🔵": "#3b82f6",
+    }
 
-  st.markdown("##### 📊 Media Salti Giornaliera (cm)")
-  if not daily_summary.empty:
-    chart_med_g = daily_summary.pivot_table(
-        index="DATE_STR", values="MEDIA_GIORNO", aggfunc="mean"
+    # 1. Grafico a barre: Numero di Salti Giornalieri
+    st.markdown("##### 🔵 Numero di Salti Giornalieri")
+    fig_bar = px.bar(
+        chart_df,
+        x="DATE_STR",
+        y="SALTI_GIORNO",
+        color="TIPO_GIORNO",
+        color_discrete_map=colore_mappa,
+        labels={
+            "DATE_STR": "Data Sessione",
+            "SALTI_GIORNO": "Nr. Salti",
+            "TIPO_GIORNO": "Tipo Sessione",
+        },
     )
-    st.line_chart(chart_med_g)
+    fig_bar.update_layout(
+        plot_bgcolor="#0b1329",
+        paper_bgcolor="#0b1329",
+        font_color="#f0f6fc",
+        margin=dict(l=20, r=20, t=20, b=20),
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    # 2. Grafico a linee: Salto Max Giornaliero con pallini arancioni sui Match Day
+    st.markdown("##### 🚀 Salto Max Giornaliero (cm)")
+    fig_line_max = px.line(
+        chart_df,
+        x="DATE_STR",
+        y="MAX_GIORNO",
+        markers=True,
+        labels={
+            "DATE_STR": "Data Sessione",
+            "MAX_GIORNO": "Salto Max (cm)",
+        },
+    )
+    fig_line_max.update_traces(
+        line=dict(color="#3b82f6", width=3),
+        marker=dict(
+            size=10,
+            color=[
+                "#f97316" if m else "#3b82f6" for m in chart_df["IS_MATCH"]
+            ],
+        ),
+    )
+    fig_line_max.update_layout(
+        plot_bgcolor="#0b1329",
+        paper_bgcolor="#0b1329",
+        font_color="#f0f6fc",
+        margin=dict(l=20, r=20, t=20, b=20),
+    )
+    st.plotly_chart(fig_line_max, use_container_width=True)
+
+    # 3. Grafico a linee: Media Salti Giornaliera con pallini arancioni sui Match Day
+    st.markdown("##### 📊 Media Salti Giornaliera (cm)")
+    fig_line_mean = px.line(
+        chart_df,
+        x="DATE_STR",
+        y="MEDIA_GIORNO",
+        markers=True,
+        labels={
+            "DATE_STR": "Data Sessione",
+            "MEDIA_GIORNO": "Media Salti (cm)",
+        },
+    )
+    fig_line_mean.update_traces(
+        line=dict(color="#3b82f6", width=3),
+        marker=dict(
+            size=10,
+            color=[
+                "#f97316" if m else "#3b82f6" for m in chart_df["IS_MATCH"]
+            ],
+        ),
+    )
+    fig_line_mean.update_layout(
+        plot_bgcolor="#0b1329",
+        paper_bgcolor="#0b1329",
+        font_color="#f0f6fc",
+        margin=dict(l=20, r=20, t=20, b=20),
+    )
+    st.plotly_chart(fig_line_mean, use_container_width=True)
 
 with tab_settimanale:
-  st.markdown("##### 🔵 Numero di Salti Settimanali")
   if not weekly_summary.empty:
-    chart_salti_w = weekly_summary.pivot_table(
-        index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
-    )
-    st.bar_chart(chart_salti_w)
+    chart_w = weekly_summary.groupby("WEEK").agg(
+        SALTI_SETTIMANA=("SALTI_SETTIMANA", "sum"),
+        MAX_SETTIMANA=("MAX_SETTIMANA", "max"),
+        MEDIA_SETTIMANA=("MEDIA_SETTIMANA", "mean"),
+    ).reset_index()
 
-  st.markdown("##### 🚀 Salto Max Settimanale (cm)")
-  if not weekly_summary.empty:
-    chart_max_w = weekly_summary.pivot_table(
-        index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
+    st.markdown("##### 🔵 Numero di Salti Settimanali")
+    fig_w_bar = px.bar(
+        chart_w,
+        x="WEEK",
+        y="SALTI_SETTIMANA",
+        color_discrete_sequence=["#3b82f6"],
     )
-    st.line_chart(chart_max_w)
+    fig_w_bar.update_layout(
+        plot_bgcolor="#0b1329",
+        paper_bgcolor="#0b1329",
+        font_color="#f0f6fc",
+        margin=dict(l=20, r=20, t=20, b=20),
+    )
+    st.plotly_chart(fig_w_bar, use_container_width=True)
 
-  st.markdown("##### 📊 Media Salti Settimanale (cm)")
-  if not weekly_summary.empty:
-    chart_med_w = weekly_summary.pivot_table(
-        index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
+    st.markdown("##### 🚀 Salto Max Settimanale (cm)")
+    fig_w_max = px.line(
+        chart_w, x="WEEK", y="MAX_SETTIMANA", markers=True
     )
-    st.line_chart(chart_med_w)
+    fig_w_max.update_traces(
+        line=dict(color="#3b82f6", width=3), marker=dict(size=10, color="#3b82f6")
+    )
+    fig_w_max.update_layout(
+        plot_bgcolor="#0b1329",
+        paper_bgcolor="#0b1329",
+        font_color="#f0f6fc",
+        margin=dict(l=20, r=20, t=20, b=20),
+    )
+    st.plotly_chart(fig_w_max, use_container_width=True)
+
+    st.markdown("##### 📊 Media Salti Settimanale (cm)")
+    fig_w_mean = px.line(
+        chart_w, x="WEEK", y="MEDIA_SETTIMANA", markers=True
+    )
+    fig_w_mean.update_traces(
+        line=dict(color="#3b82f6", width=3), marker=dict(size=10, color="#3b82f6")
+    )
+    fig_w_mean.update_layout(
+        plot_bgcolor="#0b1329",
+        paper_bgcolor="#0b1329",
+        font_color="#f0f6fc",
+        margin=dict(l=20, r=20, t=20, b=20),
+    )
+    st.plotly_chart(fig_w_mean, use_container_width=True)
 
 # --- TABELLE DETTAGLIATE ---
 with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
