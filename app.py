@@ -370,9 +370,13 @@ def load_google_sheet_force():
     try:
       url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={ex.replace(' ', '%20')}"
       temp = pd.read_csv(url)
-      temp.columns = temp.columns.str.strip()
-      temp["ESERCIZIO"] = ex
-      df_list.append(temp)
+
+      # Pulizia e rimozione spazi nei nomi delle colonne
+      temp.columns = temp.columns.astype(str).str.strip()
+
+      if not temp.empty and "Atleta" in temp.columns:
+        temp["ESERCIZIO"] = ex
+        df_list.append(temp)
     except Exception:
       pass
 
@@ -381,20 +385,28 @@ def load_google_sheet_force():
 
   df = pd.concat(df_list, ignore_index=True)
 
-  # Mappatura Nomi Atleti Completi
-  df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
-  df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
+  # Normalizzazione sicura delle colonne
+  for col in [
+      "BW",
+      "Peso usato",
+      "Reps",
+      "RIR",
+      "1RM Teorico",
+      "1RM/BW",
+      "1RM Ideale",
+  ]:
+    if col in df.columns:
+      df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    else:
+      df[col] = 0
 
-  # Conversioni Numeriche
-  df["BW"] = pd.to_numeric(df["BW"], errors="coerce").fillna(0)
-  df["Peso usato"] = pd.to_numeric(df["Peso usato"], errors="coerce").fillna(0)
-  df["Reps"] = pd.to_numeric(df["Reps"], errors="coerce").fillna(0)
-  df["RIR"] = pd.to_numeric(df["RIR"], errors="coerce").fillna(0)
-  df["1RM Teorico"] = pd.to_numeric(
-      df["1RM Teorico"], errors="coerce"
-  ).fillna(0)
-  df["1RM/BW"] = pd.to_numeric(df["1RM/BW"], errors="coerce").fillna(0)
-  df["1RM Ideale"] = pd.to_numeric(df["1RM Ideale"], errors="coerce").fillna(0)
+  # Mappatura Nomi Atleti Completi
+  if "Atleta" in df.columns:
+    df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
+    df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
+  else:
+    df["ATHLETE"] = "Sconosciuto"
+    df["ROLE"] = "Altro"
 
   return df
 
@@ -776,7 +788,7 @@ elif st.session_state.page == "dataload":
         " Google Drive)"
     )
 
-    if not df_force.empty:
+    if not df_force.empty and "ESERCIZIO" in df_force.columns:
       col_ex1, col_ex2 = st.columns([1, 2])
       with col_ex1:
         selected_ex = st.selectbox(
@@ -797,8 +809,9 @@ elif st.session_state.page == "dataload":
         ]
 
       # Tabella Sintetica Valutazione Forza
-      st.dataframe(
-          df_force_sub[[
+      cols_to_show = [
+          c
+          for c in [
               "ATHLETE",
               "ROLE",
               "BW",
@@ -808,9 +821,10 @@ elif st.session_state.page == "dataload":
               "1RM Teorico",
               "1RM/BW",
               "1RM Ideale",
-          ]],
-          use_container_width=True,
-      )
+          ]
+          if c in df_force_sub.columns
+      ]
+      st.dataframe(df_force_sub[cols_to_show], use_container_width=True)
 
       # Grafici Affiancati Massimali e Forza Relativa
       col_f1, col_f2 = st.columns(2)
@@ -824,12 +838,16 @@ elif st.session_state.page == "dataload":
                 x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
                 y=alt.Y("1RM Teorico:Q", title="1RM Teorico (kg)"),
                 tooltip=[
-                    "ATHLETE",
-                    "BW",
-                    "Peso usato",
-                    "Reps",
-                    "1RM Teorico",
-                    "1RM/BW",
+                    c
+                    for c in [
+                        "ATHLETE",
+                        "BW",
+                        "Peso usato",
+                        "Reps",
+                        "1RM Teorico",
+                        "1RM/BW",
+                    ]
+                    if c in df_force_sub.columns
                 ],
             )
             .properties(height=360)
@@ -844,7 +862,11 @@ elif st.session_state.page == "dataload":
             .encode(
                 x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
                 y=alt.Y("1RM/BW:Q", title="Forza Relativa (xBW)"),
-                tooltip=["ATHLETE", "BW", "1RM/BW", "1RM Teorico"],
+                tooltip=[
+                    c
+                    for c in ["ATHLETE", "BW", "1RM/BW", "1RM Teorico"]
+                    if c in df_force_sub.columns
+                ],
             )
             .properties(height=360)
         )
