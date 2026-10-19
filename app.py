@@ -30,19 +30,27 @@ except Exception as e:
   st.stop()
 
 # Tabella Ruoli per filtro
+# --- ROSTER UFFICIALE E RUOLI ---
 ruoli_dict = {
-    "Alexandre Strehlau": "Schiacciatore",
+    # Palleggiatori (P)
     "Bryan Argilagos": "Palleggiatore",
-    "Emanuele Barberio": "Libero",
+    "Manuel Coscione": "Palleggiatore",
+    # Schiacciatori (S)
+    "Alexandre Strehlau": "Schiacciatore",
     "Ethan Champlin": "Schiacciatore",
-    "Federico Giraudo": "Opposto",
+    "Federico Giraudo": "Schiacciatore",
+    "Nathan Feral": "Opposto",
+    "Poriya Khanzadeh": "Schiacciatore",
+    # Opposti (O)
+    "Lorenzo Sala": "Opposto",
+    # Centrali (C)
+    "Emanuele Barberio": "Centrale",
     "Leandro Mosca": "Centrale",
     "Lorenzo Codarin": "Centrale",
-    "Lorenzo Sala": "Opposto",
-    "Manuel Coscione": "Palleggiatore",
-    "Nathan Feral": "Schiacciatore",
     "Nicoló Volpe": "Centrale",
-    "Poriya Khanzadeh": "Schiacciatore",
+    # Liberi (L)
+    "Mimmo Cavaccini": "Libero",
+    "Thibault Loubeyre": "Libero",
 }
 
 df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
