@@ -5,10 +5,54 @@ import streamlit as st
 
 # Configurazione della pagina
 st.set_page_config(
-    page_title="Volley Performance App", page_icon="🏐", layout="wide"
+    page_title="Volley Performance Dashboard",
+    page_icon="🏐",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("🏐 Volley Performance Dashboard - Analytics Salti")
+# --- CSS PERSONALIZZATO PER GRAFICA MODERNA ---
+st.markdown(
+    """
+    <style>
+    /* Sfondo generale e card delle metriche */
+    div[data-testid="stMetric"] {
+        background-color: #1E222D;
+        border: 1px solid #2A2E3D;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    
+    div[data-testid="stMetric"] label {
+        color: #8B949E !important;
+        font-size: 0.9rem !important;
+        font-weight: 600;
+    }
+    
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #58A6FF !important;
+        font-weight: 700 !important;
+    }
+
+    /* Stile della barra laterale */
+    section[data-testid="stSidebar"] {
+        background-color: #161B22;
+        border-right: 1px solid #30363D;
+    }
+
+    /* Schede / Tab stili */
+    button[data-baseweb="tab"] {
+        font-weight: 600;
+        font-size: 1rem;
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
+st.title("🏐 Volley Performance Dashboard")
+st.caption("Monitoraggio carichi e analisi dinamica dei salti")
 
 # --- ROSTER UFFICIALE E RUOLI ---
 ruoli_dict = {
@@ -30,20 +74,17 @@ ruoli_dict = {
     "Nicoló Volpe": "Centrale",
 }
 
-# Anchor date per il calcolo personalizzato delle settimane:
-# 2026-10-05 è il lunedì di Settimana 7
 ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
 
 
 def get_custom_week(dt_series):
-  """Calcola la 'Settimana X' prendendo come riferimento il 05/10/26 = Settimana 7."""
   days_diff = (dt_series - ANCHOR_MONDAY).dt.days
   week_offset = days_diff // 7
   custom_week_num = 7 + week_offset
   return "Settimana " + custom_week_num.astype(str)
 
 
-# --- CARICAMENTO AUTOMATICO DI TUTTI I FILE CSV ---
+# --- CARICAMENTO AUTOMATICO DATI ---
 @st.cache_data
 def load_all_sessions():
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
@@ -66,7 +107,6 @@ def load_all_sessions():
   df = pd.concat(df_list, ignore_index=True)
   df.columns = df.columns.str.strip()
 
-  # Nome atleta e associazione ruolo
   df["ATHLETE"] = (
       df["NAME"].astype(str).str.strip()
       + " "
@@ -74,11 +114,8 @@ def load_all_sessions():
   )
   df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
 
-  # Conversione Data e Settimana Personalizzata
   df["DATE_DT"] = pd.to_datetime(df["DATE"], errors="coerce")
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
-
-  # Calcolo automatico della settimana di lavoro (es. Settimana 7, Settimana 8, ...)
   df["WEEK"] = get_custom_week(df["DATE_DT"])
 
   return df
@@ -88,40 +125,34 @@ df = load_all_sessions()
 
 if df.empty:
   st.warning(
-      "⚠️ Nessun file CSV valido trovato. Carica i file CSV nella cartella"
-      " 'data/' o nella radice del progetto."
+      "⚠️ Nessun file CSV valido trovato. Carica i file nella cartella 'data/'"
+      " su GitHub."
   )
   st.stop()
 
 # --- BARRA LATERALE: FILTRI ---
 st.sidebar.header("🔍 Filtri Selezione")
 
-# 1. Filtro Ruolo
 ruoli_list = ["Tutti"] + sorted(list(set(ruoli_dict.values())))
 selected_role = st.sidebar.selectbox("Filtra per Ruolo", ruoli_list)
 
-if selected_role != "Tutti":
-  df_role = df[df["ROLE"] == selected_role]
-else:
-  df_role = df
+df_role = df[df["ROLE"] == selected_role] if selected_role != "Tutti" else df
 
-# 2. Filtro Giocatore
 giocatori_list = sorted(df_role["ATHLETE"].unique())
 selected_player = st.sidebar.selectbox(
     "Filtra per Giocatore", ["Tutti"] + giocatori_list
 )
 
-if selected_player != "Tutti":
-  df_filtered = df_role[df_role["ATHLETE"] == selected_player]
-else:
-  df_filtered = df_role
+df_filtered = (
+    df_role[df_role["ATHLETE"] == selected_player]
+    if selected_player != "Tutti"
+    else df_role
+)
 
-# 3. Filtri Temporali
 st.sidebar.divider()
 st.sidebar.header("📅 Filtro Temporale")
 
 
-# Ordinamento naturale per le settimane custom (es. Settimana 1, Settimana 2, ...)
 def extract_week_num(w_str):
   try:
     return int(w_str.replace("Settimana ", ""))
@@ -148,9 +179,7 @@ selected_session = st.sidebar.selectbox("Data Sessione", sessioni_list)
 if selected_session != "Tutte le sessioni":
   df_filtered = df_filtered[df_filtered["DATE_STR"] == selected_session]
 
-
-# --- ELABORAZIONE DATI GIORNALIERI E SETTIMANALI ---
-# A) Raggruppamento Giornaliero (Sessione)
+# --- ELABORAZIONE DATI ---
 daily_summary = (
     df_filtered.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
     .agg(
@@ -161,7 +190,6 @@ daily_summary = (
     .reset_index()
 )
 
-# B) Raggruppamento Settimanale
 weekly_summary = (
     df_filtered.groupby(["ATHLETE", "ROLE", "WEEK"])
     .agg(
@@ -172,63 +200,59 @@ weekly_summary = (
     .reset_index()
 )
 
-# --- VISUALIZZAZIONE PANNELLI KPI ---
-st.subheader(
-    f"📊 Riepilogo Prestazioni - Giocatore: {selected_player} | Ruolo:"
-    f" {selected_role}"
+# --- VISUALIZZAZIONE KPI ---
+st.markdown(
+    f"#### 👤 **Giocatore:** `{selected_player}` | 📌 **Ruolo:**"
+    f" `{selected_role}`"
 )
 
-# SEZIONE GIORNALIERA
-st.markdown("### 📅 Dati Giornalieri (Ultima Sessione Selezionata)")
-col1, col2, col3 = st.columns(3)
+st.write(" ")
 
-with col1:
+col_g, col_w = st.columns(2)
+
+with col_g:
+  st.markdown("##### 📅 Dati Giornalieri (Ultima Sessione)")
+  c1, c2, c3 = st.columns(3)
   salti_g = (
       daily_summary["SALTI_GIORNO"].iloc[-1]
       if not daily_summary.empty
       else len(df_filtered)
   )
-  st.metric("Nr. Salti (Giornaliero)", f"{salti_g}")
-with col2:
   max_g = (
       daily_summary["MAX_GIORNO"].max() if not daily_summary.empty else 0
   )
-  st.metric("Salto Max (Giornaliero)", f"{max_g:.1f} cm")
-with col3:
   med_g = (
       daily_summary["MEDIA_GIORNO"].mean() if not daily_summary.empty else 0
   )
-  st.metric("Media Salti (Giornaliera)", f"{med_g:.1f} cm")
 
-st.divider()
+  c1.metric("Nr. Salti", f"{salti_g}")
+  c2.metric("Salto Max", f"{max_g:.1f} cm")
+  c3.metric("Media Salti", f"{med_g:.1f} cm")
 
-# SEZIONE SETTIMANALE
-st.markdown("### 🗓️ Dati Settimanali (Ultima Settimana Selezionata)")
-col4, col5, col6 = st.columns(3)
-
-with col4:
+with col_w:
+  st.markdown("##### 🗓️ Dati Settimanali (Ultima Settimana)")
+  c4, c5, c6 = st.columns(3)
   salti_w = (
       weekly_summary["SALTI_SETTIMANA"].iloc[-1]
       if not weekly_summary.empty
       else 0
   )
-  st.metric("Nr. Salti (Settimanale)", f"{salti_w}")
-with col5:
   max_w = (
       weekly_summary["MAX_SETTIMANA"].max() if not weekly_summary.empty else 0
   )
-  st.metric("Salto Max (Settimanale)", f"{max_w:.1f} cm")
-with col6:
   med_w = (
       weekly_summary["MEDIA_SETTIMANA"].mean()
       if not weekly_summary.empty
       else 0
   )
-  st.metric("Media Salti (Settimanale)", f"{med_w:.1f} cm")
+
+  c4.metric("Nr. Salti", f"{salti_w}")
+  c5.metric("Salto Max", f"{max_w:.1f} cm")
+  c6.metric("Media Salti", f"{med_w:.1f} cm")
 
 st.divider()
 
-# --- GRAFICI DI ANDAMENTO TEMPORALE GIORNALIERO E SETTIMANALE ---
+# --- GRAFICI ---
 st.subheader("📈 Grafici di Andamento Temporale")
 
 tab_giornaliero, tab_settimanale = st.tabs(
@@ -241,26 +265,29 @@ with tab_giornaliero:
   with col_g1:
     st.write("**Numero di Salti Giornalieri**")
     if not daily_summary.empty:
-      chart_salti_g = daily_summary.pivot_table(
-          index="DATE_STR", values="SALTI_GIORNO", aggfunc="sum"
+      st.bar_chart(
+          daily_summary.pivot_table(
+              index="DATE_STR", values="SALTI_GIORNO", aggfunc="sum"
+          )
       )
-      st.bar_chart(chart_salti_g)
 
   with col_g2:
     st.write("**Salto Max Giornaliero (cm)**")
     if not daily_summary.empty:
-      chart_max_g = daily_summary.pivot_table(
-          index="DATE_STR", values="MAX_GIORNO", aggfunc="max"
+      st.line_chart(
+          daily_summary.pivot_table(
+              index="DATE_STR", values="MAX_GIORNO", aggfunc="max"
+          )
       )
-      st.line_chart(chart_max_g)
 
   with col_g3:
     st.write("**Media Salti Giornaliera (cm)**")
     if not daily_summary.empty:
-      chart_med_g = daily_summary.pivot_table(
-          index="DATE_STR", values="MEDIA_GIORNO", aggfunc="mean"
+      st.line_chart(
+          daily_summary.pivot_table(
+              index="DATE_STR", values="MEDIA_GIORNO", aggfunc="mean"
+          )
       )
-      st.line_chart(chart_med_g)
 
 with tab_settimanale:
   col_w1, col_w2, col_w3 = st.columns(3)
@@ -268,30 +295,33 @@ with tab_settimanale:
   with col_w1:
     st.write("**Numero di Salti Settimanali**")
     if not weekly_summary.empty:
-      chart_salti_w = weekly_summary.pivot_table(
-          index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
+      st.bar_chart(
+          weekly_summary.pivot_table(
+              index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
+          )
       )
-      st.bar_chart(chart_salti_w)
 
   with col_w2:
     st.write("**Salto Max Settimanale (cm)**")
     if not weekly_summary.empty:
-      chart_max_w = weekly_summary.pivot_table(
-          index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
+      st.line_chart(
+          weekly_summary.pivot_table(
+              index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
+          )
       )
-      st.line_chart(chart_max_w)
 
   with col_w3:
     st.write("**Media Salti Settimanale (cm)**")
     if not weekly_summary.empty:
-      chart_med_w = weekly_summary.pivot_table(
-          index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
+      st.line_chart(
+          weekly_summary.pivot_table(
+              index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
+          )
       )
-      st.line_chart(chart_med_w)
 
 # --- TABELLE DETTAGLIATE ---
 with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
   st.write("**Riepilogo Giornaliero**")
-  st.dataframe(daily_summary)
+  st.dataframe(daily_summary, use_container_width=True)
   st.write("**Riepilogo Settimanale**")
-  st.dataframe(weekly_summary)
+  st.dataframe(weekly_summary, use_container_width=True)
