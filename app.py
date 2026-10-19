@@ -167,6 +167,57 @@ cognomi_to_full = {
     "Loubeyre": "Thibault Loubeyre",
 }
 
+player_info = {
+    "Bryan Argilagos": {
+        "bio": "Palleggiatore | Altezza: 200 cm | Classe 2007",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Manuel Coscione": {
+        "bio": "Palleggiatore | Altezza: 188 cm | Classe 1980",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Alexandre Strehlau": {
+        "bio": "Schiacciatore | Altezza: 199 cm | Classe 2004",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Ethan Champlin": {
+        "bio": "Schiacciatore | Altezza: 191 cm | Classe 2001",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Federico Giraudo": {
+        "bio": "Schiacciatore | Altezza: 198 cm | Classe 2007",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Poriya Khanzadeh": {
+        "bio": "Schiacciatore | Altezza: 202 cm | Classe 2004",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Nathan Feral": {
+        "bio": "Opposto | Altezza: 197 cm | Classe 2003",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Lorenzo Sala": {
+        "bio": "Opposto | Altezza: 200 cm | Classe 2002",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Emanuele Barberio": {
+        "bio": "Centrale | Altezza: 202 cm | Classe 2007",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Leandro Mosca": {
+        "bio": "Centrale | Altezza: 209 cm | Classe 2000",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Lorenzo Codarin": {
+        "bio": "Centrale | Altezza: 199 cm | Classe 1996",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Nicoló Volpe": {
+        "bio": "Centrale | Altezza: 193 cm | Classe 2003",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+}
+
 MATCH_DAYS = {
     "2026-10-18",
     "2026-10-25",
@@ -233,6 +284,24 @@ def load_jump_data():
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
   df["WEEK"] = get_custom_week(df["DATE_DT"])
   df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
+
+  def classify_jump(h):
+    try:
+      val = float(h)
+    except Exception:
+      return "Altro"
+    if val < 30:
+      return "JUMPS < 30"
+    elif 30 <= val <= 50:
+      return "JUMPS 30-50"
+    elif 50 < val <= 60:
+      return "JUMPS 50-60"
+    elif 60 < val <= 70:
+      return "JUMPS 60-70"
+    else:
+      return "JUMPS > 70"
+
+  df["JUMP_BAND"] = df["JUMP HEIGHT(cm)"].apply(classify_jump)
   return df
 
 
@@ -419,12 +488,51 @@ elif st.session_state.page == "datajump":
   df_f = df_jump.copy()
   if selected_roles:
     df_f = df_f[df_f["ROLE"].isin(selected_roles)]
+
   giocatori_list = sorted(df_f["ATHLETE"].unique())
   selected_players = st.sidebar.multiselect(
       "Seleziona Giocatori da Analizzare / Confrontare", giocatori_list
   )
   if selected_players:
     df_f = df_f[df_f["ATHLETE"].isin(selected_players)]
+
+  unique_weeks = sorted(
+      [w for w in df_f["WEEK"].unique() if pd.notna(w)],
+      key=extract_week_num,
+      reverse=True,
+  )
+  selected_weeks = st.sidebar.multiselect(
+      "Settimane di Lavoro", unique_weeks
+  )
+  if selected_weeks:
+    df_f = df_f[df_f["WEEK"].isin(selected_weeks)]
+
+  sessioni_list = sorted(
+      [d for d in df_f["DATE_STR"].unique() if pd.notna(d)], reverse=True
+  )
+  selected_sessions = st.sidebar.multiselect("Date Sedute", sessioni_list)
+  if selected_sessions:
+    df_f = df_f[df_f["DATE_STR"].isin(selected_sessions)]
+
+  # Player Card se selezionato un singolo giocatore
+  if selected_players and len(selected_players) == 1:
+    p = selected_players[0]
+    role_val = ruoli_dict.get(p, "Atleta")
+    details = player_info.get(p, {})
+    bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
+    link_val = details.get("url", "https://cuneovolley.it/prima-squadra/giocatori")
+
+    st.markdown(
+        f"""
+        <div class="player-card">
+            <div class="player-title">🛡️ {p}</div>
+            <div class="player-role">Ruolo: {role_val}</div>
+            <p style="color: #475569; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
+            <a href="{link_val}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
   daily_summary = (
       df_f.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
@@ -433,6 +541,16 @@ elif st.session_state.page == "datajump":
           MAX_GIORNO=("JUMP HEIGHT(cm)", "max"),
           MEDIA_GIORNO=("JUMP HEIGHT(cm)", "mean"),
           IS_MATCH=("IS_MATCH", "max"),
+      )
+      .reset_index()
+  )
+
+  weekly_summary = (
+      df_f.groupby(["ATHLETE", "ROLE", "WEEK"])
+      .agg(
+          SALTI_SETTIMANA=("JUMP HEIGHT(cm)", "count"),
+          MAX_SETTIMANA=("JUMP HEIGHT(cm)", "max"),
+          MEDIA_SETTIMANA=("JUMP HEIGHT(cm)", "mean"),
       )
       .reset_index()
   )
@@ -454,6 +572,127 @@ elif st.session_state.page == "datajump":
       "Giocatori Monitorati",
       f"{len(df_f['ATHLETE'].unique()) if not df_f.empty else 0}",
   )
+
+  st.divider()
+
+  tab1, tab2, tab3, tab4 = st.tabs([
+      "📊 Andamento Giornaliero",
+      "🗓️ Andamento Settimanale",
+      "⚔️ Confronto Giocatori",
+      "🎯 Distribuzione Fasce",
+  ])
+
+  with tab1:
+    if not daily_summary.empty:
+      st.markdown("##### 🔵 Volume Salti per Data e Giocatore")
+      chart1 = (
+          alt.Chart(daily_summary)
+          .mark_bar()
+          .encode(
+              x=alt.X("DATE_STR:N", title="Data Seduta"),
+              y=alt.Y("SALTI_GIORNO:Q", title="Nr. Salti"),
+              color=alt.Color("ATHLETE:N", title="Giocatore"),
+              tooltip=["DATE_STR", "ATHLETE", "SALTI_GIORNO", "MAX_GIORNO"],
+          )
+          .properties(height=380)
+      )
+      st.altair_chart(chart1, use_container_width=True)
+
+      st.markdown("##### 🚀 Salto Max (cm)")
+      chart2 = (
+          alt.Chart(daily_summary)
+          .mark_line(point=True)
+          .encode(
+              x=alt.X("DATE_STR:N", title="Data Seduta"),
+              y=alt.Y("MAX_GIORNO:Q", title="Salto Max (cm)"),
+              color=alt.Color("ATHLETE:N", title="Giocatore"),
+              tooltip=["DATE_STR", "ATHLETE", "MAX_GIORNO"],
+          )
+          .properties(height=380)
+      )
+      st.altair_chart(chart2, use_container_width=True)
+
+  with tab2:
+    if not weekly_summary.empty:
+      st.markdown("##### 🔵 Volume Salti Settimanali")
+      chart_w = (
+          alt.Chart(weekly_summary)
+          .mark_bar()
+          .encode(
+              x=alt.X("WEEK:N", title="Settimana"),
+              y=alt.Y("SALTI_SETTIMANA:Q", title="Nr. Salti"),
+              color=alt.Color("ATHLETE:N", title="Giocatore"),
+              tooltip=["WEEK", "ATHLETE", "SALTI_SETTIMANA"],
+          )
+          .properties(height=380)
+      )
+      st.altair_chart(chart_w, use_container_width=True)
+
+  with tab3:
+    if not df_f.empty:
+      comp_df = (
+          df_f.groupby(["ATHLETE", "ROLE"])
+          .agg(
+              TOT_SALTI=("JUMP HEIGHT(cm)", "count"),
+              MAX_SALTO=("JUMP HEIGHT(cm)", "max"),
+              MEDIA_SALTO=("JUMP HEIGHT(cm)", "mean"),
+          )
+          .reset_index()
+      )
+      col_a, col_b = st.columns(2)
+      with col_a:
+        st.write("**Totale Salti per Giocatore**")
+        st.altair_chart(
+            alt.Chart(comp_df)
+            .mark_bar(color="#2563eb")
+            .encode(
+                x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
+                y=alt.Y("TOT_SALTI:Q", title="Totale Salti"),
+                tooltip=["ATHLETE", "TOT_SALTI"],
+            )
+            .properties(height=350),
+            use_container_width=True,
+        )
+      with col_b:
+        st.write("**Salto Max (cm) per Giocatore**")
+        st.altair_chart(
+            alt.Chart(comp_df)
+            .mark_bar(color="#f97316")
+            .encode(
+                x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
+                y=alt.Y("MAX_SALTO:Q", title="Salto Max (cm)"),
+                tooltip=["ATHLETE", "MAX_SALTO"],
+            )
+            .properties(height=350),
+            use_container_width=True,
+        )
+
+  with tab4:
+    if not df_f.empty:
+      order_list = [
+          "JUMPS < 30",
+          "JUMPS 30-50",
+          "JUMPS 50-60",
+          "JUMPS 60-70",
+          "JUMPS > 70",
+      ]
+      band_comp = (
+          df_f.groupby(["JUMP_BAND", "ATHLETE"])
+          .size()
+          .reset_index(name="Numero Salti")
+      )
+      chart_b = (
+          alt.Chart(band_comp)
+          .mark_bar()
+          .encode(
+              x=alt.X("JUMP_BAND:N", sort=order_list, title="Fascia"),
+              y=alt.Y("Numero Salti:Q"),
+              color=alt.Color("ATHLETE:N", title="Giocatore"),
+              tooltip=["JUMP_BAND", "ATHLETE", "Numero Salti"],
+          )
+          .properties(height=400)
+      )
+      st.altair_chart(chart_b, use_container_width=True)
 
 # ==============================================================================
 # SCHERMATA 3: MODULO DATALOAD
