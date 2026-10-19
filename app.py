@@ -232,15 +232,15 @@ def load_all_sessions():
     except Exception:
       return "Altro"
     if val < 30:
-      return "JUMPS < 30"
+      return "1. JUMPS < 30"
     elif 30 <= val <= 50:
-      return "JUMPS 30-50"
+      return "2. JUMPS 30-50"
     elif 50 < val <= 60:
-      return "JUMPS 50-60"
+      return "3. JUMPS 50-60"
     elif 60 < val <= 70:
-      return "JUMPS 60-70"
+      return "4. JUMPS 60-70"
     else:
-      return "JUMPS > 70"
+      return "5. JUMPS > 70"
 
   df["JUMP_BAND"] = df["JUMP HEIGHT(cm)"].apply(classify_jump)
 
@@ -451,20 +451,27 @@ with tab_settimanale:
 with tab_fasce:
   st.markdown("##### 🎯 Distribuzione Volume Salti per Fasce d'Altezza")
   if not df_filtered.empty:
-    # Conteggio per ciascuna fascia ordinata correttamente
-    band_order = [
-        "JUMPS < 30",
-        "JUMPS 30-50",
-        "JUMPS 50-60",
-        "JUMPS 60-70",
-        "JUMPS > 70",
-    ]
-    band_counts = (
-        df_filtered["JUMP_BAND"]
-        .value_counts()
-        .reindex(band_order, fill_value=0)
-    )
-    st.bar_chart(band_counts)
+    # Definizione e ordinamento rigoroso delle 5 fasce
+    band_order = {
+        "1. JUMPS < 30": "JUMPS < 30",
+        "2. JUMPS 30-50": "JUMPS 30-50",
+        "3. JUMPS 50-60": "JUMPS 50-60",
+        "4. JUMPS 60-70": "JUMPS 60-70",
+        "5. JUMPS > 70": "JUMPS > 70",
+    }
+
+    counts = df_filtered["JUMP_BAND"].value_counts()
+    ordered_df = pd.DataFrame(
+        [
+            {
+                "Fascia": label,
+                "Conteggio Salti": counts.get(key, 0),
+            }
+            for key, label in band_order.items()
+        ]
+    ).set_index("Fascia")
+
+    st.bar_chart(ordered_df)
   else:
     st.info("Nessun dato disponibile per i filtri selezionati.")
 
