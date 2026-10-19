@@ -34,7 +34,7 @@ ruoli_dict = {
 # --- CARICAMENTO AUTOMATICO DI TUTTI I FILE DA GITHUB ---
 @st.cache_data
 def load_all_sessions():
-  # Cerca sia nella radice sia nella cartella data/
+  # Cerca sia nella cartella data/ che nella radice del progetto
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
 
   if not files:
@@ -54,8 +54,15 @@ def load_all_sessions():
 
   df = pd.concat(df_list, ignore_index=True)
 
+  # Pulizia spazi nei nomi delle colonne se presenti
+  df.columns = df.columns.str.strip()
+
   # Creazione atleta e ruolo
-  df["ATHLETE"] = df["NAME"] + " " + df["SURNAME"]
+  df["ATHLETE"] = (
+      df["NAME"].astype(str).str.strip()
+      + " "
+      + df["SURNAME"].astype(str).str.strip()
+  )
   df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
 
   # Conversione Data e Settimana ISO in modo sicuro
@@ -76,8 +83,8 @@ df = load_all_sessions()
 
 if df.empty:
   st.warning(
-      "⚠️ Nessun file CSV trovato nel repository GitHub. Carica i file nella"
-      " cartella 'data/' o nella radice del progetto per visualizzare i dati."
+      "⚠️ Nessun file CSV valido trovato. Verifica di aver caricato il file dei"
+      " salti su GitHub."
   )
   st.stop()
 
