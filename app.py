@@ -4,15 +4,15 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-# 1. Configurazione della Pagina
+# 1. Configurazione della Pagina con Sidebar Visibile di Default
 st.set_page_config(
-    page_title="DataJump",
+    page_title="Cuneo Volley Performance Hub",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# 2. CSS Personalizzato, Sfondo Bianco, Centratura Stemma e Card Cliccabili
+# 2. CSS Personalizzato - PULSANTE SIDEBAR SEMPRE VISIBILE
 st.markdown(
     """
     <head>
@@ -24,16 +24,22 @@ st.markdown(
     </head>
     
     <style>
-    header {visibility: hidden;}
+    /* Rimozione footer ed elementi inutili SENZA nascondere il bottone della Sidebar */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+
+    /* Assicura che il pulsante per aprire la sidebar sia sempre ben visibile */
+    button[data-testid="stHeaderIconButton"] {
+        visibility: visible !important;
+        display: block !important;
+    }
 
     .stApp {
         background-color: #ffffff;
         color: #1f2937;
     }
 
-    /* Centratura Logo */
+    /* Centratura Logo Home */
     .logo-container {
         display: flex;
         justify-content: center;
@@ -85,13 +91,13 @@ st.markdown(
         font-weight: 700;
     }
 
-    /* TRASFORMAZIONE DEL PULSANTE IN UN RIQUADRO GRANDE CLICCABILE */
+    /* TRASFORMAZIONE PULSANTI HOME IN CARD CLICCABILI */
     div.stButton > button {
         background-color: #f8fafc !important;
         color: #0f172a !important;
         border: 2px solid #e2e8f0 !important;
         border-radius: 20px !important;
-        padding: 40px 20px !important;
+        padding: 35px 20px !important;
         height: auto !important;
         width: 100% !important;
         box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.04) !important;
@@ -228,7 +234,7 @@ def extract_week_num(w_str):
     return 0
 
 
-# 5. Mappatura Codici di Accesso Riservato
+# 5. Mappatura Codici Accesso Riservato
 ACCESS_CODES = {
     "CUNEO": "ALL",
     "FRA-CN": ["Nathan Feral"],
@@ -401,7 +407,7 @@ elif st.session_state.page == "datajump":
       st.session_state.page = "home"
       st.rerun()
 
-  # Controllo Accessi da Sidebar
+  # Controllo Accessi e Filtri Sidebar
   allowed_athletes = render_access_control()
 
   df_jump = load_jump_data()
@@ -413,7 +419,7 @@ elif st.session_state.page == "datajump":
     )
     st.stop()
 
-  # Filtro sicurezza
+  # Filtro sicurezza in base al codice PIN
   if allowed_athletes != "ALL":
     df_jump = df_jump[df_jump["ATHLETE"].isin(allowed_athletes)]
 
@@ -656,7 +662,7 @@ elif st.session_state.page == "dataload":
       st.session_state.page = "home"
       st.rerun()
 
-  # Controllo Accessi da Sidebar
+  # Controllo Accessi e Filtri Sidebar
   allowed_athletes = render_access_control()
 
   df_load = load_load_data()
@@ -669,7 +675,7 @@ elif st.session_state.page == "dataload":
     )
     st.stop()
 
-  # Filtro sicurezza
+  # Filtro sicurezza in base al codice PIN
   if allowed_athletes != "ALL":
     df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
 
@@ -812,7 +818,7 @@ elif st.session_state.page == "dataload":
                   "TONNELLAGGIO_SETTIMANA:Q", title="Tonnellaggio Settimanale (kg)"
               ),
               color=alt.Color("ATHLETE:N", title="Giocatore"),
-              tooltip=["WEEK", "ATHLETE", "TONNELLAGGIO_SETTIMANA"],
+              tooltip=["WEEK", "ATHLETE", "SALTI_SETTIMANA" if "SALTI_SETTIMANA" in load_weekly.columns else "TONNELLAGGIO_SETTIMANA"],
           )
           .properties(height=380)
       )
