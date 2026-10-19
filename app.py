@@ -5,7 +5,7 @@ import streamlit as st
 
 # Configurazione della pagina
 st.set_page_config(
-    page_title="Volley Performance App",
+    page_title="Volley Performance Dashboard",
     page_icon="🏐",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -35,6 +35,13 @@ st.markdown(
         background-color: #161B22;
         border-right: 1px solid #30363D;
     }
+    .player-card {
+        background-color: #1E222D;
+        border: 1px solid #2A2E3D;
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+    }
     </style>
 """,
     unsafe_allow_html=True,
@@ -59,24 +66,56 @@ ruoli_dict = {
     "Nicoló Volpe": "Centrale",
 }
 
-# (Facoltativo) Link di riferimento o immagini ufficiali dei giocatori
-# Puoi inserire qui i link diretti alle foto o ai profili
+# Informazioni dettagliate e link scheda ufficiale Cuneo Volley per ogni atleta
 player_info = {
     "Bryan Argilagos": {
-        "maglia": "#",
-        "bio": "Palleggiatore - Classe 2007",
+        "bio": "Palleggiatore | Altezza: 200 cm | Classe 2007",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
     },
-    "Manuel Coscione": {"maglia": "#", "bio": "Palleggiatore - Classe 1980"},
-    "Alexandre Strehlau": {"maglia": "#", "bio": "Schiacciatore - Classe 2004"},
-    "Ethan Champlin": {"maglia": "#", "bio": "Schiacciatore - Classe 2001"},
-    "Federico Giraudo": {"maglia": "#", "bio": "Schiacciatore - Classe 2007"},
-    "Poriya Khanzadeh": {"maglia": "#", "bio": "Schiacciatore - Classe 2004"},
-    "Nathan Feral": {"maglia": "#", "bio": "Opposto - Classe 2003"},
-    "Lorenzo Sala": {"maglia": "#", "bio": "Opposto - Classe 2002"},
-    "Emanuele Barberio": {"maglia": "#", "bio": "Centrale - Classe 2007"},
-    "Leandro Mosca": {"maglia": "#", "bio": "Centrale - Classe 2000"},
-    "Lorenzo Codarin": {"maglia": "#", "bio": "Centrale - Classe 1996"},
-    "Nicoló Volpe": {"maglia": "#", "bio": "Centrale - Classe 2003"},
+    "Manuel Coscione": {
+        "bio": "Palleggiatore | Altezza: 188 cm | Classe 1980",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Alexandre Strehlau": {
+        "bio": "Schiacciatore | Altezza: 199 cm | Classe 2004",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Ethan Champlin": {
+        "bio": "Schiacciatore | Altezza: 191 cm | Classe 2001",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Federico Giraudo": {
+        "bio": "Schiacciatore | Altezza: 198 cm | Classe 2007",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Poriya Khanzadeh": {
+        "bio": "Schiacciatore | Altezza: 202 cm | Classe 2004",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Nathan Feral": {
+        "bio": "Opposto | Altezza: 197 cm | Classe 2003",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Lorenzo Sala": {
+        "bio": "Opposto | Altezza: 200 cm | Classe 2002",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Emanuele Barberio": {
+        "bio": "Centrale | Altezza: 202 cm | Classe 2007",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Leandro Mosca": {
+        "bio": "Centrale | Altezza: 209 cm | Classe 2000",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Lorenzo Codarin": {
+        "bio": "Centrale | Altezza: 199 cm | Classe 1996",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
+    "Nicoló Volpe": {
+        "bio": "Centrale | Altezza: 193 cm | Classe 2003",
+        "url": "https://cuneovolley.it/prima-squadra/giocatori",
+    },
 }
 
 ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
@@ -204,26 +243,26 @@ weekly_summary = (
     .reset_index()
 )
 
-# --- PROFILO GIOCATORE / PLAYER CARD ---
+# --- PROFILO GIOCATORE / PLAYER CARD UFFICIALE ---
 if selected_player != "Tutti":
   role_val = ruoli_dict.get(selected_player, "Atleta")
-  info_val = player_info.get(selected_player, {}).get("bio", "Cuneo Volley")
+  details = player_info.get(selected_player, {})
+  bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
+  link_val = details.get(
+      "url", "https://cuneovolley.it/prima-squadra/giocatori"
+  )
 
-  col_avatar, col_info = st.columns([1, 4])
-  with col_avatar:
-    # Mostra un'icona o immagine placeholder personalizzabile
-    st.image(
-        "https://img.icons8.com/color/96/volleyball.png",
-        width=100,
-    )
-  with col_info:
-    st.markdown(f"### 👤 {selected_player}")
-    st.markdown(f"**Ruolo:** `{role_val}` | **Dettagli:** {info_val}")
-    st.markdown(
-        "🔗 [Visulaizza la scheda ufficiale su Cuneo"
-        " Volley](https://cuneovolley.it/prima-squadra/giocatori)"
-    )
-  st.divider()
+  st.markdown(
+      f"""
+    <div class="player-card">
+        <h2>🏐 {selected_player}</h2>
+        <p style="font-size: 1.1rem; color: #58A6FF; margin-bottom: 5px;"><b>Ruolo:</b> {role_val}</p>
+        <p style="color: #8B949E; margin-bottom: 15px;">{bio_val}</p>
+        <a href="{link_val}" target="_blank" style="color: #58A6FF; text-decoration: none; font-weight: 600;">🔗 Visita la scheda ufficiale su Cuneo Volley &rarr;</a>
+    </div>
+    """,
+      unsafe_allow_html=True,
+  )
 
 # --- VISUALIZZAZIONE KPI ---
 col_g, col_w = st.columns(2)
