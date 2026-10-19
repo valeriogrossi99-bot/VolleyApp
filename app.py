@@ -368,10 +368,12 @@ def load_google_sheet_force():
 
   for ex in esercizi:
     try:
+      # skiprows=2 per saltare le prime righe unite vuote
       url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={ex.replace(' ', '%20')}"
-      temp = pd.read_csv(url)
+      temp = pd.read_csv(url, skiprows=2)
 
-      # Pulizia e rimozione spazi nei nomi delle colonne
+      # Rimuove colonne senza nome
+      temp = temp.loc[:, ~temp.columns.str.contains("^Unnamed")]
       temp.columns = temp.columns.astype(str).str.strip()
 
       if not temp.empty and "Atleta" in temp.columns:
@@ -385,8 +387,21 @@ def load_google_sheet_force():
 
   df = pd.concat(df_list, ignore_index=True)
 
-  # Normalizzazione sicura delle colonne
-  for col in [
+  # Filtra righe non valide
+  df = df[df["Atleta"].notna() & (df["Atleta"] != "Atleta")].copy()
+
+  # Funzione per convertire i numeri con la virgola italiana
+  def clean_num(val):
+    if pd.isna(val) or val == "" or val == "-" or "#" in str(val):
+      return 0.0
+    val_str = str(val).replace(",", ".").strip()
+    try:
+      return float(val_str)
+    except Exception:
+      return 0.0
+
+  # Normalizzazione ed estrazione dati numerici
+  cols_map = [
       "BW",
       "Peso usato",
       "Reps",
@@ -394,19 +409,16 @@ def load_google_sheet_force():
       "1RM Teorico",
       "1RM/BW",
       "1RM Ideale",
-  ]:
+  ]
+  for col in cols_map:
     if col in df.columns:
-      df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+      df[col] = df[col].apply(clean_num)
     else:
-      df[col] = 0
+      df[col] = 0.0
 
-  # Mappatura Nomi Atleti Completi
-  if "Atleta" in df.columns:
-    df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
-    df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
-  else:
-    df["ATHLETE"] = "Sconosciuto"
-    df["ROLE"] = "Altro"
+  # Mappatura Nomi Atleti Completi e Ruolo
+  df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
+  df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
 
   return df
 
@@ -797,7 +809,6 @@ elif st.session_state.page == "dataload":
 
       df_force_sub = df_force[df_force["ESERCIZIO"] == selected_ex]
 
-      # Filtro per atleti autorizzati
       giocatori_force = sorted(df_force_sub["ATHLETE"].unique())
       selected_f_players = st.multiselect(
           "Filtra per Giocatore/i:", giocatori_force, default=giocatori_force
@@ -808,7 +819,7 @@ elif st.session_state.page == "dataload":
             df_force_sub["ATHLETE"].isin(selected_f_players)
         ]
 
-      # Tabella Sintetica Valutazione Forza
+      # Tabella Sintetica
       cols_to_show = [
           c
           for c in [
@@ -824,7 +835,17 @@ elif st.session_state.page == "dataload":
           ]
           if c in df_force_sub.columns
       ]
-      st.dataframe(df_force_sub[cols_to_show], use_container_width=True)
+
+      st.dataframe(
+          df_force_sub[cols_to_show].style.format({
+              "BW": "{:.1f} kg",
+              "Peso usato": "{:.1f} kg",
+              "1RM Teorico": "{:.1f} kg",
+              "1RM/BW": "{:.2f} xBW",
+              "1RM Ideale": "{:.1f} kg",
+          }),
+          use_container_width=True,
+      )
 
       # Grafici Affiancati Massimali e Forza Relativa
       col_f1, col_f2 = st.columns(2)
