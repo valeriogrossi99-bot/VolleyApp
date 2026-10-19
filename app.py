@@ -19,18 +19,15 @@ ruoli_dict = {
     "Alexandre Strehlau": "Schiacciatore",
     "Ethan Champlin": "Schiacciatore",
     "Federico Giraudo": "Schiacciatore",
-    "Nathan Feral": "Opposto",
     "Poriya Khanzadeh": "Schiacciatore",
     # Opposti
+    "Nathan Feral": "Opposto",
     "Lorenzo Sala": "Opposto",
     # Centrali
     "Emanuele Barberio": "Centrale",
     "Leandro Mosca": "Centrale",
     "Lorenzo Codarin": "Centrale",
     "Nicoló Volpe": "Centrale",
-    # Liberi
-    "Mimmo Cavaccini": "Libero",
-    "Thibault Loubeyre": "Libero",
 }
 
 
