@@ -362,7 +362,7 @@ with col_w:
 
 st.divider()
 
-# --- GRAFICI ---
+# --- GRAFICI IN LINEA (DISPOSTI UNO SOTTO L'ALTRO) ---
 st.subheader("📈 Grafici di Andamento Temporale")
 
 tab_giornaliero, tab_settimanale = st.tabs(
@@ -370,58 +370,48 @@ tab_giornaliero, tab_settimanale = st.tabs(
 )
 
 with tab_giornaliero:
-  col_g1, col_g2, col_g3 = st.columns(3)
-  with col_g1:
-    st.write("**Numero di Salti Giornalieri**")
-    if not daily_summary.empty:
-      st.bar_chart(
-          daily_summary.pivot_table(
-              index="DATE_STR", values="SALTI_GIORNO", aggfunc="sum"
-          )
-      )
-  with col_g2:
-    st.write("**Salto Max Giornaliero (cm)**")
-    if not daily_summary.empty:
-      st.line_chart(
-          daily_summary.pivot_table(
-              index="DATE_STR", values="MAX_GIORNO", aggfunc="max"
-          )
-      )
-  with col_g3:
-    st.write("**Media Salti Giornaliera (cm)**")
-    if not daily_summary.empty:
-      st.line_chart(
-          daily_summary.pivot_table(
-              index="DATE_STR", values="MEDIA_GIORNO", aggfunc="mean"
-          )
-      )
+  st.markdown("##### 🔵 Numero di Salti Giornalieri")
+  if not daily_summary.empty:
+    chart_salti_g = daily_summary.pivot_table(
+        index="DATE_STR", values="SALTI_GIORNO", aggfunc="sum"
+    )
+    st.bar_chart(chart_salti_g)
+
+  st.markdown("##### 🚀 Salto Max Giornaliero (cm)")
+  if not daily_summary.empty:
+    chart_max_g = daily_summary.pivot_table(
+        index="DATE_STR", values="MAX_GIORNO", aggfunc="max"
+    )
+    st.line_chart(chart_max_g)
+
+  st.markdown("##### 📊 Media Salti Giornaliera (cm)")
+  if not daily_summary.empty:
+    chart_med_g = daily_summary.pivot_table(
+        index="DATE_STR", values="MEDIA_GIORNO", aggfunc="mean"
+    )
+    st.line_chart(chart_med_g)
 
 with tab_settimanale:
-  col_w1, col_w2, col_w3 = st.columns(3)
-  with col_w1:
-    st.write("**Numero di Salti Settimanali**")
-    if not weekly_summary.empty:
-      st.bar_chart(
-          weekly_summary.pivot_table(
-              index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
-          )
-      )
-  with col_w2:
-    st.write("**Salto Max Settimanale (cm)**")
-    if not weekly_summary.empty:
-      st.line_chart(
-          weekly_summary.pivot_table(
-              index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
-          )
-      )
-  with col_w3:
-    st.write("**Media Salti Settimanale (cm)**")
-    if not weekly_summary.empty:
-      st.line_chart(
-          weekly_summary.pivot_table(
-              index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
-          )
-      )
+  st.markdown("##### 🔵 Numero di Salti Settimanali")
+  if not weekly_summary.empty:
+    chart_salti_w = weekly_summary.pivot_table(
+        index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
+    )
+    st.bar_chart(chart_salti_w)
+
+  st.markdown("##### 🚀 Salto Max Settimanale (cm)")
+  if not weekly_summary.empty:
+    chart_max_w = weekly_summary.pivot_table(
+        index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
+    )
+    st.line_chart(chart_max_w)
+
+  st.markdown("##### 📊 Media Salti Settimanale (cm)")
+  if not weekly_summary.empty:
+    chart_med_w = weekly_summary.pivot_table(
+        index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
+    )
+    st.line_chart(chart_med_w)
 
 # --- TABELLE DETTAGLIATE ---
 with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
