@@ -1,5 +1,6 @@
 import glob
 import os
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -225,22 +226,22 @@ def load_all_sessions():
   df["WEEK"] = get_custom_week(df["DATE_DT"])
   df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
 
-  # Categorizzazione con prefisso numerico per ordinamento alfabetico forzato
+  # Categorizzazione delle fasce di salto
   def classify_jump(h):
     try:
       val = float(h)
     except Exception:
-      return "6. Altro"
+      return "Altro"
     if val < 30:
-      return "1. JUMPS < 30"
+      return "JUMPS < 30"
     elif 30 <= val <= 50:
-      return "2. JUMPS 30-50"
+      return "JUMPS 30-50"
     elif 50 < val <= 60:
-      return "3. JUMPS 50-60"
+      return "JUMPS 50-60"
     elif 60 < val <= 70:
-      return "4. JUMPS 60-70"
+      return "JUMPS 60-70"
     else:
-      return "5. JUMPS > 70"
+      return "JUMPS > 70"
 
   df["JUMP_BAND"] = df["JUMP HEIGHT(cm)"].apply(classify_jump)
 
@@ -451,22 +452,8 @@ with tab_settimanale:
 with tab_fasce:
   st.markdown("##### 🎯 Distribuzione Volume Salti per Fasce d'Altezza")
   if not df_filtered.empty:
-    # Mappatura ordinata
-    categories = [
-        "1. JUMPS < 30",
-        "2. JUMPS 30-50",
-        "3. JUMPS 50-60",
-        "4. JUMPS 60-70",
-        "5. JUMPS > 70",
-    ]
-    counts = (
-        df_filtered["JUMP_BAND"]
-        .value_counts()
-        .reindex(categories, fill_value=0)
-    )
-
-    # Rimozione prefisso per pulizia etichette
-    counts.index = [
+    # Definizione esplicita dell'ordine desiderato
+    order_list = [
         "JUMPS < 30",
         "JUMPS 30-50",
         "JUMPS 50-60",
@@ -474,7 +461,25 @@ with tab_fasce:
         "JUMPS > 70",
     ]
 
-    st.bar_chart(counts)
+    counts = df_filtered["JUMP_BAND"].value_counts()
+    band_df = pd.DataFrame({
+        "Fascia": order_list,
+        "Numero Salti": [counts.get(b, 0) for b in order_list],
+    })
+
+    # Grafico Altair con ordinamento rigido e vincolato
+    chart_altair = (
+        alt.Chart(band_df)
+        .mark_bar(color="#2563eb")
+        .encode(
+            x=alt.X("Fascia:N", sort=order_list, title="Fascia di Salto"),
+            y=alt.Y("Numero Salti:Q", title="Conteggio Salti"),
+            tooltip=["Fascia", "Numero Salti"],
+        )
+        .properties(height=400)
+    )
+
+    st.altair_chart(chart_altair, use_container_width=True)
   else:
     st.info("Nessun dato disponibile per i filtri selezionati.")
 
