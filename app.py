@@ -612,53 +612,57 @@ elif st.session_state.page == "datajump":
       )
       st.altair_chart(chart2, use_container_width=True)
 
-      st.divider()
-      st.markdown("##### 📈 Andamento dei Salti all'Interno delle Singole Sessioni")
-      st.info(
-          "I grafici seguenti mostrano l'altezza dei singoli salti in ordine"
-          " cronologico per ciascuna seduta di allenamento selezionata."
-      )
+      # IL GRAFICO DELL'ANDAMENTO INTRA-SESSIONE COMPARE SOLO SE È SELEZIONATO UN SINGOLO GIOCATORE
+      if selected_players and len(selected_players) == 1:
+        st.divider()
+        st.markdown(
+            f"##### 📈 Andamento dei Salti all'Interno delle Sessioni —"
+            f" {selected_players[0]}"
+        )
+        st.info(
+            "I grafici seguenti mostrano l'altezza dei singoli salti in ordine"
+            " cronologico per ciascuna seduta di allenamento dell'atleta."
+        )
 
-      df_session_seq = df_f.copy()
-      df_session_seq = df_session_seq.sort_values(by=["DATE_DT", "ATHLETE"])
-      df_session_seq["NUM_SALTO"] = df_session_seq.groupby(
-          ["DATE_STR", "ATHLETE"]
-      ).cumcount() + 1
+        df_session_seq = df_f.copy()
+        df_session_seq = df_session_seq.sort_values(by=["DATE_DT"])
+        df_session_seq["NUM_SALTO"] = df_session_seq.groupby(
+            ["DATE_STR", "ATHLETE"]
+        ).cumcount() + 1
 
-      date_disponibili = sorted(df_session_seq["DATE_STR"].unique())
+        date_disponibili = sorted(df_session_seq["DATE_STR"].unique())
 
-      if not date_disponibili:
-        st.warning("Nessuna sessione trovata con i filtri attuali.")
-      else:
-        for data_seduta in date_disponibili:
-          df_data_sub = df_session_seq[
-              df_session_seq["DATE_STR"] == data_seduta
-          ]
+        if not date_disponibili:
+          st.warning("Nessuna sessione trovata con i filtri attuali.")
+        else:
+          for data_seduta in date_disponibili:
+            df_data_sub = df_session_seq[
+                df_session_seq["DATE_STR"] == data_seduta
+            ]
 
-          st.markdown(f"**📅 Seduta del: {data_seduta}**")
+            st.markdown(f"**📅 Seduta del: {data_seduta}**")
 
-          chart_intra = (
-              alt.Chart(df_data_sub)
-              .mark_line(point=True, strokeWidth=2)
-              .encode(
-                  x=alt.X(
-                      "NUM_SALTO:Q",
-                      title="Progressione Salti nella Seduta",
-                  ),
-                  y=alt.Y(
-                      "JUMP HEIGHT(cm):Q", title="Altezza Salto (cm)"
-                  ),
-                  color=alt.Color("ATHLETE:N", title="Giocatore"),
-                  tooltip=[
-                      "ATHLETE",
-                      "NUM_SALTO",
-                      "JUMP HEIGHT(cm)",
-                      "JUMP_BAND",
-                  ],
-              )
-              .properties(height=300, width="container")
-          )
-          st.altair_chart(chart_intra, use_container_width=True)
+            chart_intra = (
+                alt.Chart(df_data_sub)
+                .mark_line(point=True, strokeWidth=2, color="#2563eb")
+                .encode(
+                    x=alt.X(
+                        "NUM_SALTO:Q",
+                        title="Progressione Salti nella Seduta",
+                    ),
+                    y=alt.Y(
+                        "JUMP HEIGHT(cm):Q", title="Altezza Salto (cm)"
+                    ),
+                    tooltip=[
+                        "ATHLETE",
+                        "NUM_SALTO",
+                        "JUMP HEIGHT(cm)",
+                        "JUMP_BAND",
+                    ],
+                )
+                .properties(height=300, width="container")
+            )
+            st.altair_chart(chart_intra, use_container_width=True)
 
   with tab2:
     if not weekly_summary.empty:
@@ -867,28 +871,3 @@ elif st.session_state.page == "dataload":
         st.altair_chart(chart_fr, use_container_width=True)
     else:
       st.info(
-          "ℹ️ Impossibile caricare il foglio Google di valutazione della forza."
-      )
-
-  with tab1:
-    if not df_load.empty:
-      load_daily = (
-          df_load.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
-          .agg(TONNELLAGGIO_GIORNO=("TOTAL_LOAD", "sum"))
-          .reset_index()
-      )
-      st.markdown("##### 🏋️‍♂️ Tonnellaggio Sollevato per Data e Giocatore (kg)")
-      chart_l1 = (
-          alt.Chart(load_daily)
-          .mark_bar()
-          .encode(
-              x=alt.X("DATE_STR:N", title="Data Seduta Pesi"),
-              y=alt.Y("TONNELLAGGIO_GIORNO:Q", title="Tonnellaggio Totale (kg)"),
-              color=alt.Color("ATHLETE:N", title="Giocatore"),
-              tooltip=["DATE_STR", "ATHLETE", "TONNELLAGGIO_GIORNO"],
-          )
-          .properties(height=380)
-      )
-      st.altair_chart(chart_l1, use_container_width=True)
-    else:
-      st.info("ℹ️ Nessun dato di tonnellaggio disponibile.")
