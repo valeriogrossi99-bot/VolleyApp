@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# Configurazione della pagina
+# Configurazione della pagina (Sfondo chiaro / Tema pulito)
 st.set_page_config(
     page_title="DataJump - Cuneo Volley",
     page_icon="🛡️",
@@ -13,63 +13,77 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- CSS PERSONALIZZATO CON I COLORI BIANCOBLÙ DEL CUNEO VOLLEY ---
+# --- CSS PERSONALIZZATO CON SFONDO BIANCO E COLORI CUNEO VOLLEY ---
 st.markdown(
     """
     <style>
+    /* Sfondo generale bianco e testo scuro per massima leggibilità */
     .stApp {
-        background-color: #0b1329;
-        color: #f0f6fc;
+        background-color: #ffffff;
+        color: #1f2937;
     }
+    
+    /* Header Stemma Club */
     .header-container {
         display: flex;
         align-items: center;
         gap: 20px;
         padding-bottom: 12px;
-        border-bottom: 2px solid #1e3a60;
+        border-bottom: 2px solid #e5e7eb;
         margin-bottom: 25px;
     }
+
+    /* Card delle metriche (KPI) su sfondo bianco */
     div[data-testid="stMetric"] {
-        background-color: #152238;
-        border: 1px solid #1e3a60;
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
         padding: 18px;
         border-radius: 12px;
-        box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
+        box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.05);
     }
+    
     div[data-testid="stMetric"] label {
-        color: #93c5fd !important;
+        color: #475569 !important;
         font-size: 0.95rem !important;
         font-weight: 600;
     }
+    
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-        color: #60a5fa !important;
+        color: #2563eb !important;
         font-weight: 700 !important;
     }
+
+    /* Barra laterale (Sidebar) */
     section[data-testid="stSidebar"] {
-        background-color: #0d172e;
-        border-right: 1px solid #1e3a60;
+        background-color: #f1f5f9;
+        border-right: 1px solid #e2e8f0;
     }
+
+    /* Card Profilo Giocatore */
     .player-card {
-        background-color: #152238;
-        border: 1px solid #1e3a60;
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
         padding: 24px;
         border-radius: 14px;
         margin-bottom: 25px;
-        box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.5);
+        box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.05);
     }
+    
     .player-title {
-        color: #ffffff;
+        color: #0f172a;
         font-size: 1.8rem;
         font-weight: 800;
         margin-bottom: 5px;
     }
+
     .player-role {
-        color: #60a5fa;
+        color: #2563eb;
         font-size: 1.1rem;
         font-weight: 700;
     }
+    
     h1, h2, h3 {
-        color: #ffffff;
+        color: #0f172a;
     }
     </style>
 """,
@@ -86,8 +100,8 @@ with col_shield:
 with col_title:
   st.markdown(
       """
-        <h1 style="margin: 0; font-size: 2.5rem; color: #ffffff; letter-spacing: 1px;">DataJump</h1>
-        <p style="margin: 0; color: #93c5fd; font-size: 1rem;">Cuneo Volley — Dashboard Ufficiale Monitoraggio Salti & Carichi (Sola Lettura)</p>
+        <h1 style="margin: 0; font-size: 2.5rem; color: #0f172a; letter-spacing: 1px;">DataJump</h1>
+        <p style="margin: 0; color: #475569; font-size: 1rem;">Cuneo Volley — Dashboard Ufficiale Monitoraggio Salti & Carichi (Sola Lettura)</p>
     """,
       unsafe_allow_html=True,
   )
@@ -161,28 +175,28 @@ player_info = {
 
 # --- CALENDARIO UFFICIALE MATCH DAY CUNEO VOLLEY (SUPERLEGA 2026/2027) ---
 MATCH_DAYS = {
-    "2026-10-18",  # 1ª Giornata: Cuneo - Perugia
-    "2026-10-25",  # 2ª Giornata: Milano - Cuneo
-    "2026-11-01",  # 3ª Giornata: Cuneo - Lube Civitanova
-    "2026-11-04",  # 4ª Giornata: Cuneo - Vero Volley Monza
-    "2026-11-08",  # 5ª Giornata: Prata di Pordenone - Cuneo
-    "2026-11-22",  # 6ª Giornata: Cuneo - Rana Verona
-    "2026-11-29",  # 7ª Giornata: Padova - Cuneo
-    "2026-12-02",  # 8ª Giornata: Modena - Cuneo
-    "2026-12-06",  # 9ª Giornata: Cuneo - Piacenza
-    "2026-12-13",  # 10ª Giornata: Cisterna - Cuneo
-    "2026-12-20",  # 11ª Giornata: Trentino - Cuneo
-    "2026-12-26",  # 12ª Giornata (Ritorno): Cuneo - Modena
-    "2027-01-03",  # 13ª Giornata: Lube Civitanova - Cuneo
-    "2027-01-10",  # 14ª Giornata: Cuneo - Milano
-    "2027-01-13",  # 15ª Giornata: Cuneo - Trentino
-    "2027-01-17",  # 16ª Giornata: Verona - Cuneo
-    "2027-01-24",  # 17ª Giornata: Monza - Cuneo
-    "2027-01-31",  # 18ª Giornata: Cuneo - Prata di Pordenone
-    "2027-02-14",  # 19ª Giornata: Perugia - Cuneo
-    "2027-02-21",  # 20ª Giornata: Cuneo - Padova
-    "2027-02-24",  # 21ª Giornata: Piacenza - Cuneo
-    "2027-02-28",  # 22ª Giornata: Cuneo - Cisterna
+    "2026-10-18",
+    "2026-10-25",
+    "2026-11-01",
+    "2026-11-04",
+    "2026-11-08",
+    "2026-11-22",
+    "2026-11-29",
+    "2026-12-02",
+    "2026-12-06",
+    "2026-12-13",
+    "2026-12-20",
+    "2026-12-26",
+    "2027-01-03",
+    "2027-01-10",
+    "2027-01-13",
+    "2027-01-17",
+    "2027-01-24",
+    "2027-01-31",
+    "2027-02-14",
+    "2027-02-21",
+    "2027-02-24",
+    "2027-02-28",
 }
 
 ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
@@ -228,7 +242,6 @@ def load_all_sessions():
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
   df["WEEK"] = get_custom_week(df["DATE_DT"])
 
-  # Assegnazione automatica del Match Day basata sul calendario ufficiale Lega Pallavolo
   df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
 
   return df
@@ -328,8 +341,8 @@ if selected_player != "Tutti":
     <div class="player-card">
         <div class="player-title">🛡️ {selected_player}</div>
         <div class="player-role">Ruolo: {role_val}</div>
-        <p style="color: #93c5fd; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
-        <a href="{link_val}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
+        <p style="color: #475569; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
+        <a href="{link_val}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
     </div>
     """,
       unsafe_allow_html=True,
@@ -408,7 +421,7 @@ with tab_giornaliero:
     )
     colore_mappa = {
         "Match Day 🟠": "#f97316",
-        "Allenamento / Standard 🔵": "#3b82f6",
+        "Allenamento / Standard 🔵": "#2563eb",
     }
 
     # 1. Grafico a barre: Numero di Salti Giornalieri
@@ -426,9 +439,9 @@ with tab_giornaliero:
         },
     )
     fig_bar.update_layout(
-        plot_bgcolor="#0b1329",
-        paper_bgcolor="#0b1329",
-        font_color="#f0f6fc",
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font_color="#1f2937",
         margin=dict(l=20, r=20, t=20, b=20),
     )
     st.plotly_chart(fig_bar, use_container_width=True)
@@ -446,18 +459,18 @@ with tab_giornaliero:
         },
     )
     fig_line_max.update_traces(
-        line=dict(color="#3b82f6", width=3),
+        line=dict(color="#2563eb", width=3),
         marker=dict(
             size=10,
             color=[
-                "#f97316" if m else "#3b82f6" for m in chart_df["IS_MATCH"]
+                "#f97316" if m else "#2563eb" for m in chart_df["IS_MATCH"]
             ],
         ),
     )
     fig_line_max.update_layout(
-        plot_bgcolor="#0b1329",
-        paper_bgcolor="#0b1329",
-        font_color="#f0f6fc",
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font_color="#1f2937",
         margin=dict(l=20, r=20, t=20, b=20),
     )
     st.plotly_chart(fig_line_max, use_container_width=True)
@@ -475,18 +488,18 @@ with tab_giornaliero:
         },
     )
     fig_line_mean.update_traces(
-        line=dict(color="#3b82f6", width=3),
+        line=dict(color="#2563eb", width=3),
         marker=dict(
             size=10,
             color=[
-                "#f97316" if m else "#3b82f6" for m in chart_df["IS_MATCH"]
+                "#f97316" if m else "#2563eb" for m in chart_df["IS_MATCH"]
             ],
         ),
     )
     fig_line_mean.update_layout(
-        plot_bgcolor="#0b1329",
-        paper_bgcolor="#0b1329",
-        font_color="#f0f6fc",
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font_color="#1f2937",
         margin=dict(l=20, r=20, t=20, b=20),
     )
     st.plotly_chart(fig_line_mean, use_container_width=True)
@@ -504,12 +517,12 @@ with tab_settimanale:
         chart_w,
         x="WEEK",
         y="SALTI_SETTIMANA",
-        color_discrete_sequence=["#3b82f6"],
+        color_discrete_sequence=["#2563eb"],
     )
     fig_w_bar.update_layout(
-        plot_bgcolor="#0b1329",
-        paper_bgcolor="#0b1329",
-        font_color="#f0f6fc",
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font_color="#1f2937",
         margin=dict(l=20, r=20, t=20, b=20),
     )
     st.plotly_chart(fig_w_bar, use_container_width=True)
@@ -519,12 +532,12 @@ with tab_settimanale:
         chart_w, x="WEEK", y="MAX_SETTIMANA", markers=True
     )
     fig_w_max.update_traces(
-        line=dict(color="#3b82f6", width=3), marker=dict(size=10, color="#3b82f6")
+        line=dict(color="#2563eb", width=3), marker=dict(size=10, color="#2563eb")
     )
     fig_w_max.update_layout(
-        plot_bgcolor="#0b1329",
-        paper_bgcolor="#0b1329",
-        font_color="#f0f6fc",
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font_color="#1f2937",
         margin=dict(l=20, r=20, t=20, b=20),
     )
     st.plotly_chart(fig_w_max, use_container_width=True)
@@ -534,12 +547,12 @@ with tab_settimanale:
         chart_w, x="WEEK", y="MEDIA_SETTIMANA", markers=True
     )
     fig_w_mean.update_traces(
-        line=dict(color="#3b82f6", width=3), marker=dict(size=10, color="#3b82f6")
+        line=dict(color="#2563eb", width=3), marker=dict(size=10, color="#2563eb")
     )
     fig_w_mean.update_layout(
-        plot_bgcolor="#0b1329",
-        paper_bgcolor="#0b1329",
-        font_color="#f0f6fc",
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font_color="#1f2937",
         margin=dict(l=20, r=20, t=20, b=20),
     )
     st.plotly_chart(fig_w_mean, use_container_width=True)
