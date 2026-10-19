@@ -48,9 +48,6 @@ ruoli_dict = {
     "Leandro Mosca": "Centrale",
     "Lorenzo Codarin": "Centrale",
     "Nicoló Volpe": "Centrale",
-    # Liberi (L)
-    "Mimmo Cavaccini": "Libero",
-    "Thibault Loubeyre": "Libero",
 }
 
 df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Non Assegnato")
