@@ -313,3 +313,174 @@ daily_summary = (
         MAX_GIORNO=("JUMP HEIGHT(cm)", "max"),
         MEDIA_GIORNO=("JUMP HEIGHT(cm)", "mean"),
         IS_MATCH=("IS_MATCH", "max"),
+    )
+    .reset_index()
+)
+
+weekly_summary = (
+    df_filtered.groupby(["ATHLETE", "ROLE", "WEEK"])
+    .agg(
+        SALTI_SETTIMANA=("JUMP HEIGHT(cm)", "count"),
+        MAX_SETTIMANA=("JUMP HEIGHT(cm)", "max"),
+        MEDIA_SETTIMANA=("JUMP HEIGHT(cm)", "mean"),
+    )
+    .reset_index()
+)
+
+# --- PROFILO GIOCATORE ---
+if selected_player != "Tutti":
+  role_val = ruoli_dict.get(selected_player, "Atleta")
+  details = player_info.get(selected_player, {})
+  bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
+  link_val = details.get(
+      "url", "https://cuneovolley.it/prima-squadra/giocatori"
+  )
+
+  st.markdown(
+      f"""
+    <div class="player-card">
+        <div class="player-title">🛡️ {selected_player}</div>
+        <div class="player-role">Ruolo: {role_val}</div>
+        <p style="color: #475569; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
+        <a href="{link_val}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
+    </div>
+    """,
+      unsafe_allow_html=True,
+  )
+
+# --- KPI ---
+col_g, col_w = st.columns(2)
+
+with col_g:
+  st.markdown("##### 📅 Dati Giornalieri (Ultima Sessione)")
+  c1, c2, c3 = st.columns(3)
+  salti_g = (
+      daily_summary["SALTI_GIORNO"].iloc[-1]
+      if not daily_summary.empty
+      else len(df_filtered)
+  )
+  max_g = (
+      daily_summary["MAX_GIORNO"].max() if not daily_summary.empty else 0
+  )
+  med_g = (
+      daily_summary["MEDIA_GIORNO"].mean() if not daily_summary.empty else 0
+  )
+
+  c1.metric("Nr. Salti", f"{salti_g}")
+  c2.metric("Salto Max", f"{max_g:.1f} cm")
+  c3.metric("Media Salti", f"{med_g:.1f} cm")
+
+with col_w:
+  st.markdown("##### 🗓️ Dati Settimanali (Ultima Settimana)")
+  c4, c5, c6 = st.columns(3)
+  salti_w = (
+      weekly_summary["SALTI_SETTIMANA"].iloc[-1]
+      if not weekly_summary.empty
+      else 0
+  )
+  max_w = (
+      weekly_summary["MAX_SETTIMANA"].max() if not weekly_summary.empty else 0
+  )
+  med_w = (
+      weekly_summary["MEDIA_SETTIMANA"].mean()
+      if not weekly_summary.empty
+      else 0
+  )
+
+  c4.metric("Nr. Salti", f"{salti_w}")
+  c5.metric("Salto Max", f"{max_w:.1f} cm")
+  c6.metric("Media Salti", f"{med_w:.1f} cm")
+
+st.divider()
+
+# --- GRAFICI DI ANDAMENTO E DISTRIBUZIONE FASCE DI SALTO ---
+st.subheader("📈 Grafici di Analisi e Andamento Temporale")
+
+tab_giornaliero, tab_settimanale, tab_fasce = st.tabs(
+    [
+        "📊 Andamento Giornaliero",
+        "🗓️ Andamento Settimanale",
+        "🎯 Distribuzione Fasce di Salto",
+    ]
+)
+
+with tab_giornaliero:
+  if not daily_summary.empty:
+    chart_df = (
+        daily_summary.groupby("DATE_STR")
+        .agg(
+            SALTI_GIORNO=("SALTI_GIORNO", "sum"),
+            MAX_GIORNO=("MAX_GIORNO", "max"),
+            MEDIA_GIORNO=("MEDIA_GIORNO", "mean"),
+        )
+        .reset_index()
+        .set_index("DATE_STR")
+    )
+
+    st.markdown("##### 🔵 Numero di Salti Giornalieri")
+    st.bar_chart(chart_df[["SALTI_GIORNO"]])
+
+    st.markdown("##### 🚀 Salto Max Giornaliero (cm)")
+    st.line_chart(chart_df[["MAX_GIORNO"]])
+
+    st.markdown("##### 📊 Media Salti Giornaliera (cm)")
+    st.line_chart(chart_df[["MEDIA_GIORNO"]])
+
+with tab_settimanale:
+  if not weekly_summary.empty:
+    chart_w = (
+        weekly_summary.groupby("WEEK")
+        .agg(
+            SALTI_SETTIMANA=("SALTI_SETTIMANA", "sum"),
+            MAX_SETTIMANA=("MAX_SETTIMANA", "max"),
+            MEDIA_SETTIMANA=("MEDIA_SETTIMANA", "mean"),
+        )
+        .reset_index()
+        .set_index("WEEK")
+    )
+
+    st.markdown("##### 🔵 Numero di Salti Settimanali")
+    st.bar_chart(chart_w[["SALTI_SETTIMANA"]])
+
+    st.markdown("##### 🚀 Salto Max Settimanale (cm)")
+    st.line_chart(chart_w[["MAX_SETTIMANA"]])
+
+    st.markdown("##### 📊 Media Salti Settimanale (cm)")
+    st.line_chart(chart_w[["MEDIA_SETTIMANA"]])
+
+with tab_fasce:
+  st.markdown("##### 🎯 Distribuzione Volume Salti per Fasce d'Altezza")
+  if not df_filtered.empty:
+    # Mappatura ordinata
+    categories = [
+        "1. JUMPS < 30",
+        "2. JUMPS 30-50",
+        "3. JUMPS 50-60",
+        "4. JUMPS 60-70",
+        "5. JUMPS > 70",
+    ]
+    counts = (
+        df_filtered["JUMP_BAND"]
+        .value_counts()
+        .reindex(categories, fill_value=0)
+    )
+
+    # Rimozione prefisso per pulizia etichette
+    counts.index = [
+        "JUMPS < 30",
+        "JUMPS 30-50",
+        "JUMPS 50-60",
+        "JUMPS 60-70",
+        "JUMPS > 70",
+    ]
+
+    st.bar_chart(counts)
+  else:
+    st.info("Nessun dato disponibile per i filtri selezionati.")
+
+# --- TABELLE DETTAGLIATE ---
+with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
+  st.write("**Riepilogo Giornaliero**")
+  st.dataframe(daily_summary, use_container_width=True)
+  st.write("**Riepilogo Settimanale**")
+  st.dataframe(weekly_summary, use_container_width=True)
