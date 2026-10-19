@@ -393,4 +393,29 @@ with tab_settimanale:
     if not weekly_summary.empty:
       st.bar_chart(
           weekly_summary.pivot_table(
-              index="WEEK", values="SALTI_SETTIM
+              index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
+          )
+      )
+  with col_w2:
+    st.write("**Salto Max Settimanale (cm)**")
+    if not weekly_summary.empty:
+      st.line_chart(
+          weekly_summary.pivot_table(
+              index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
+          )
+      )
+  with col_w3:
+    st.write("**Media Salti Settimanale (cm)**")
+    if not weekly_summary.empty:
+      st.line_chart(
+          weekly_summary.pivot_table(
+              index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
+          )
+      )
+
+# --- TABELLE DETTAGLIATE ---
+with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
+  st.write("**Riepilogo Giornaliero**")
+  st.dataframe(daily_summary, use_container_width=True)
+  st.write("**Riepilogo Settimanale**")
+  st.dataframe(weekly_summary, use_container_width=True)
