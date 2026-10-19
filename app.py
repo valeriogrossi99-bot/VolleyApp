@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# 2. CSS Personalizzato, Sfondo Bianco e Card Cliccabili
+# 2. CSS Personalizzato, Sfondo Bianco, Centratura Stemma e Card Cliccabili
 st.markdown(
     """
     <head>
@@ -31,6 +31,16 @@ st.markdown(
     .stApp {
         background-color: #ffffff;
         color: #1f2937;
+    }
+
+    /* Centratura Logo */
+    .logo-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        margin-top: 20px;
+        margin-bottom: 10px;
     }
 
     div[data-testid="stMetric"] {
@@ -86,10 +96,8 @@ st.markdown(
         width: 100% !important;
         box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.04) !important;
         transition: all 0.25s ease-in-out !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
+        white-space: pre-wrap !important;
+        line-height: 1.5 !important;
     }
     
     div.stButton > button:hover {
@@ -317,29 +325,20 @@ def load_load_data():
 
 
 # ==============================================================================
-# SCHERMATA 1: HOME PAGE GENERALE (LANDING PAGE CON QUADRATI CLICCABILI)
+# SCHERMATA 1: HOME PAGE GENERALE (LANDING PAGE CON STEMMA CENTRATO)
 # ==============================================================================
 if st.session_state.page == "home":
-  st.write("")
-  st.write("")
-
-  # Stemma centrale Cuneo Volley
-  col_a, col_center, col_b = st.columns([1, 2, 1])
-  with col_center:
-    st.image(
-        "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10",
-        width=130,
-    )
-    st.markdown(
-        """
-            <h1 style="text-align: center; font-size: 2.8rem; margin-top: 10px; margin-bottom: 5px;">Cuneo Volley</h1>
-            <p style="text-align: center; color: #64748b; font-size: 1.1rem; font-weight: 500;">Performance & Analytics Hub</p>
-        """,
-        unsafe_allow_html=True,
-    )
-
-  st.write("")
-  st.write("")
+  # Contenitore dello Stemma Ufficiale Perfettamente Centrato
+  st.markdown(
+      """
+        <div class="logo-container">
+            <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10" width="140">
+        </div>
+        <h1 style="text-align: center; font-size: 2.8rem; margin-top: 10px; margin-bottom: 5px;">Cuneo Volley</h1>
+        <p style="text-align: center; color: #64748b; font-size: 1.1rem; font-weight: 500; margin-bottom: 40px;">Performance & Analytics Hub</p>
+    """,
+      unsafe_allow_html=True,
+  )
 
   # I due quadrati/card cliccabili direttamente
   col_card1, col_card2 = st.columns(2)
