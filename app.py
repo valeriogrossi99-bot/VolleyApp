@@ -243,4 +243,4 @@ with tab_giornaliero:
       st.line_chart(chart_med_g)
 
 with tab_settimanale:
-  col_w1, col_w2, col_w3 = st.columns(3
+  col_w1, col_w2, col_w3 = st.columns(3)
