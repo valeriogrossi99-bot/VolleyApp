@@ -117,21 +117,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Inizializzazione Sessione e Navigazione
+# 3. Gestione della Navigazione e dei Parametri URL
 if "page" not in st.session_state:
   st.session_state.page = "home"
 
-if "auth_token" not in st.session_state:
-  st.session_state.auth_token = None
+# Legge il parametro 'atleta' direttamente dall'URL (es. ?atleta=Nathan Feral)
+query_params = st.query_params
+url_athlete = query_params.get("atleta", None)
 
-if "pending_module" not in st.session_state:
-  st.session_state.pending_module = None
-
-ACCESS_CODES = {
-    "cuneo": "ALL",
-    "fracn": ["Nathan Feral"],
-    "itacn": ["Leandro Mosca"],
-}
+if url_athlete:
+  # Se il link specifica un atleta, limitiamo la vista a quell'atleta
+  allowed_athletes = [url_athlete]
+else:
+  # Altrimenti visualizzazione completa
+  allowed_athletes = "ALL"
 
 ruoli_dict = {
     "Bryan Argilagos": "Palleggiatore",
@@ -403,56 +402,23 @@ if st.session_state.page == "home":
       unsafe_allow_html=True,
   )
 
-  if st.session_state.pending_module:
-    st.warning(
-        f"🔑 **Inserisci il codice di visualizzazione per proseguire verso"
-        f" {st.session_state.pending_module.upper()}**"
-    )
-    col_pin, col_btn = st.columns([3, 1])
-    with col_pin:
-      entered_pin = st.text_input(
-          "Codice:", type="password", key="pin_input"
-      ).strip().lower()
-    with col_btn:
-      st.write("")
-      st.write("")
-      if st.button("Conferma 🔓", use_container_width=True):
-        if entered_pin in ACCESS_CODES:
-          st.session_state.auth_token = entered_pin
-          st.session_state.page = st.session_state.pending_module
-          st.session_state.pending_module = None
-          st.rerun()
-        else:
-          st.error("❌ Codice non valido. Riprova.")
-    if st.button("❌ Annulla", use_container_width=False):
-      st.session_state.pending_module = None
+  col_card1, col_card2 = st.columns(2)
+  with col_card1:
+    if st.button(
+        "🚀\n\nDataJump\n\nMonitoraggio Salti, Elevazione & Fasce",
+        key="btn_jump",
+        use_container_width=True,
+    ):
+      st.session_state.page = "datajump"
       st.rerun()
-  else:
-    col_card1, col_card2 = st.columns(2)
-    with col_card1:
-      if st.button(
-          "🚀\n\nDataJump\n\nMonitoraggio Salti, Elevazione & Fasce",
-          key="btn_jump",
-          use_container_width=True,
-      ):
-        if st.session_state.auth_token is not None:
-          st.session_state.page = "datajump"
-          st.rerun()
-        else:
-          st.session_state.pending_module = "datajump"
-          st.rerun()
-    with col_card2:
-      if st.button(
-          "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi, Massimali & Forza",
-          key="btn_load",
-          use_container_width=True,
-      ):
-        if st.session_state.auth_token is not None:
-          st.session_state.page = "dataload"
-          st.rerun()
-        else:
-          st.session_state.pending_module = "dataload"
-          st.rerun()
+  with col_card2:
+    if st.button(
+        "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi, Massimali & Forza",
+        key="btn_load",
+        use_container_width=True,
+    ):
+      st.session_state.page = "dataload"
+      st.rerun()
 
 # ==============================================================================
 # SCHERMATA 2: MODULO DATAJUMP
@@ -466,12 +432,10 @@ elif st.session_state.page == "datajump":
       st.session_state.page = "home"
       st.rerun()
 
-  token = st.session_state.auth_token
-  allowed_athletes = ACCESS_CODES.get(token, "ALL")
   if allowed_athletes == "ALL":
     st.sidebar.success("🔓 Visualizzazione: Roster Completo")
   else:
-    st.sidebar.success(f"🔓 Visualizzazione: {', '.join(allowed_athletes)}")
+    st.sidebar.success(f"🔓 Visualizzazione Dedicata: {allowed_athletes[0]}")
 
   df_jump = load_jump_data()
   if df_jump.empty:
@@ -514,9 +478,15 @@ elif st.session_state.page == "datajump":
   if selected_sessions:
     df_f = df_f[df_f["DATE_STR"].isin(selected_sessions)]
 
-  # Player Card se selezionato un singolo giocatore
-  if selected_players and len(selected_players) == 1:
-    p = selected_players[0]
+  # Player Card se selezionato un singolo giocatore o se filtrato da URL
+  single_player_target = (
+      selected_players[0]
+      if selected_players and len(selected_players) == 1
+      else (allowed_athletes[0] if allowed_athletes != "ALL" else None)
+  )
+
+  if single_player_target:
+    p = single_player_target
     role_val = ruoli_dict.get(p, "Atleta")
     details = player_info.get(p, {})
     bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
@@ -612,12 +582,11 @@ elif st.session_state.page == "datajump":
       )
       st.altair_chart(chart2, use_container_width=True)
 
-      # IL GRAFICO DELL'ANDAMENTO INTRA-SESSIONE COMPARE SOLO SE È SELEZIONATO UN SINGOLO GIOCATORE
-      if selected_players and len(selected_players) == 1:
+      if single_player_target:
         st.divider()
         st.markdown(
             f"##### 📈 Andamento dei Salti all'Interno delle Sessioni —"
-            f" {selected_players[0]}"
+            f" {single_player_target}"
         )
         st.info(
             "I grafici seguenti mostrano l'altezza dei singoli salti in ordine"
@@ -758,13 +727,10 @@ elif st.session_state.page == "dataload":
       st.session_state.page = "home"
       st.rerun()
 
-  token = st.session_state.auth_token
-  allowed_athletes = ACCESS_CODES.get(token, "ALL")
-
   if allowed_athletes == "ALL":
     st.sidebar.success("🔓 Visualizzazione: Roster Completo")
   else:
-    st.sidebar.success(f"🔓 Visualizzazione: {', '.join(allowed_athletes)}")
+    st.sidebar.success(f"🔓 Visualizzazione Dedicata: {allowed_athletes[0]}")
 
   df_load = load_load_data()
   df_force = load_google_sheet_force()
