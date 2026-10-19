@@ -11,6 +11,18 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+st.markdown(
+    """
+    <head>
+        <link rel="manifest" href="manifest.json">
+        <meta name="theme-color" content="#2563eb">
+        <meta name="apple-mobile-web-app-capable" yes>
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <link rel="apple-touch-icon" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10">
+    </head>
+""",
+    unsafe_allow_html=True,
+)
 
 # --- CSS PERSONALIZZATO CON SFONDO BIANCO E COLORI CUNEO VOLLEY ---
 st.markdown(
