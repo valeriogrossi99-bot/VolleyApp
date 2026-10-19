@@ -39,9 +39,9 @@ ruoli_dict = {
     "Alexandre Strehlau": "Schiacciatore",
     "Ethan Champlin": "Schiacciatore",
     "Federico Giraudo": "Schiacciatore",
-    "Nathan Feral": "Opposto",
     "Poriya Khanzadeh": "Schiacciatore",
     # Opposti (O)
+    "Nathan Feral": "Opposto",
     "Lorenzo Sala": "Opposto",
     # Centrali (C)
     "Emanuele Barberio": "Centrale",
@@ -53,7 +53,7 @@ ruoli_dict = {
     "Thibault Loubeyre": "Libero",
 }
 
-df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
+df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Non Assegnato")
 
 # BARRA LATERALE PER I FILTRI
 st.sidebar.header("🔍 Filtri")
