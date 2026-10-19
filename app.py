@@ -6,7 +6,7 @@ import streamlit as st
 
 # Configurazione della pagina
 st.set_page_config(
-    page_title="DataJump - Cuneo Volley",
+    page_title="DataJump",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
