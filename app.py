@@ -117,7 +117,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Inizializzazione Sessione e Autenticazione
+# 3. Inizializzazione Sessione
 if "page" not in st.session_state:
   st.session_state.page = "home"
 
@@ -127,7 +127,9 @@ if "auth_token" not in st.session_state:
 if "pending_module" not in st.session_state:
   st.session_state.pending_module = None
 
-# Database in memoria di sessione per le modifiche rapide da app
+if "is_admin" not in st.session_state:
+  st.session_state.is_admin = False
+
 if "local_force_db" not in st.session_state:
   st.session_state.local_force_db = pd.DataFrame(
       columns=[
@@ -142,10 +144,11 @@ if "local_force_db" not in st.session_state:
       ]
   )
 
+# Codici di visualizzazione
 ACCESS_CODES = {
-    "CUNEO": "ALL",
-    "FRACN": ["Nathan Feral"],
-    "ITA-CN": ["Leandro Mosca"],
+    "cuneo": "ALL",
+    "fracn": ["Nathan Feral"],
+    "itacn": ["Leandro Mosca"],
 }
 
 ruoli_dict = {
@@ -197,17 +200,6 @@ PESI_CORPOREI_DEFAULT = {
     "Nicoló Volpe": 85.0,
     "Mimmo Cavaccini": 68.0,
     "Thibault Loubeyre": 77.0,
-}
-
-player_info = {
-    "Nathan Feral": {
-        "bio": "Opposto | Altezza: 197 cm | Classe 2003",
-        "url": "https://cuneovolley.it/prima-squadra/giocatori",
-    },
-    "Leandro Mosca": {
-        "bio": "Centrale | Altezza: 209 cm | Classe 2000",
-        "url": "https://cuneovolley.it/prima-squadra/giocatori",
-    },
 }
 
 MATCH_DAYS = {
@@ -318,6 +310,50 @@ def load_load_data():
   return df
 
 
+@st.cache_data(ttl=60)
+def load_google_sheet_force():
+  sheet_id = "1ib2DrRfODly8HT_V8c2PRNdALYt1_vDCAbvtAK7U1aw"
+  esercizi = ["Back Squat", "Front Squat", "Stacco QB"]
+  df_list = []
+
+  for ex in esercizi:
+    try:
+      url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={ex.replace(' ', '%20')}"
+      temp = pd.read_csv(url, skiprows=2)
+      temp = temp.loc[:, ~temp.columns.str.contains("^Unnamed")]
+      temp.columns = temp.columns.astype(str).str.strip()
+      if not temp.empty and "Atleta" in temp.columns:
+        temp["ESERCIZIO"] = ex
+        df_list.append(temp)
+    except Exception:
+      pass
+
+  if not df_list:
+    return pd.DataFrame()
+
+  df = pd.concat(df_list, ignore_index=True)
+  df = df[df["Atleta"].notna() & (df["Atleta"] != "Atleta")].copy()
+
+  def clean_num(val):
+    if pd.isna(val) or val == "" or val == "-" or "#" in str(val):
+      return 0.0
+    val_str = str(val).replace(",", ".").strip()
+    try:
+      return float(val_str)
+    except Exception:
+      return 0.0
+
+  for col in ["BW", "Peso usato", "Reps", "RIR", "1RM Teorico", "1RM/BW", "1RM Ideale"]:
+    if col in df.columns:
+      df[col] = df[col].apply(clean_num)
+    else:
+      df[col] = 0.0
+
+  df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
+  df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
+  return df
+
+
 # ==============================================================================
 # SCHERMATA 1: HOME PAGE
 # ==============================================================================
@@ -335,18 +371,18 @@ if st.session_state.page == "home":
 
   if st.session_state.pending_module:
     st.warning(
-        f"🔑 **Inserisci il codice PIN di accesso per proseguire verso"
+        f"🔑 **Inserisci il codice di visualizzazione per proseguire verso"
         f" {st.session_state.pending_module.upper()}**"
     )
     col_pin, col_btn = st.columns([3, 1])
     with col_pin:
       entered_pin = st.text_input(
-          "Codice di Sicurezza:", type="password", key="pin_input"
-      ).strip()
+          "Codice:", type="password", key="pin_input"
+      ).strip().lower()
     with col_btn:
       st.write("")
       st.write("")
-      if st.button("Conferma PIN 🔓", use_container_width=True):
+      if st.button("Conferma 🔓", use_container_width=True):
         if entered_pin in ACCESS_CODES:
           st.session_state.auth_token = entered_pin
           st.session_state.page = st.session_state.pending_module
@@ -373,8 +409,7 @@ if st.session_state.page == "home":
           st.rerun()
     with col_card2:
       if st.button(
-          "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi, Massimali & Inserimento"
-          " Rapido",
+          "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi, Massimali & Forza",
           key="btn_load",
           use_container_width=True,
       ):
@@ -400,15 +435,32 @@ elif st.session_state.page == "datajump":
   token = st.session_state.auth_token
   allowed_athletes = ACCESS_CODES.get(token, "ALL")
   if allowed_athletes == "ALL":
-    st.sidebar.success("🔓 Accesso Completo: Roster Cuneo Volley")
+    st.sidebar.success("🔓 Visualizzazione: Roster Completo")
   else:
-    st.sidebar.success(f"🔓 Accesso Riservato: {', '.join(allowed_athletes)}")
+    st.sidebar.success(f"🔓 Visualizzazione: {', '.join(allowed_athletes)}")
+
+  # GESTIONE ADMIN NELLA SIDEBAR
+  st.sidebar.divider()
+  st.sidebar.markdown("##### 🛠️ Area Riservata Admin")
+  if not st.session_state.is_admin:
+    admin_pwd = st.sidebar.text_input("Password Admin:", type="password", key="adm_pwd")
+    if st.sidebar.button("Sblocca Modifiche 🔐"):
+      # Sostituisci 'tua_password_segreta' con la password che preferisci tu
+      if admin_pwd == "cuneo123":
+        st.session_state.is_admin = True
+        st.sidebar.success("✅ Modalità Admin Attiva!")
+        st.rerun()
+      else:
+        st.sidebar.error("❌ Password errata")
+  else:
+    st.sidebar.success("👑 Accesso Admin Attivo (Modifiche Abilitate)")
+    if st.sidebar.button("Blocca / Esci da Admin"):
+      st.session_state.is_admin = False
+      st.rerun()
 
   df_jump = load_jump_data()
   if df_jump.empty:
-    st.warning(
-        "⚠️ Nessun file CSV relativo ai salti trovato nella cartella 'data/'."
-    )
+    st.warning("⚠️ Nessun file CSV relativo ai salti trovato.")
     st.stop()
 
   if allowed_athletes != "ALL":
@@ -457,29 +509,13 @@ elif st.session_state.page == "datajump":
       f"{len(df_f['ATHLETE'].unique()) if not df_f.empty else 0}",
   )
 
-  st.divider()
-  if not daily_summary.empty:
-    st.markdown("##### 🔵 Volume Salti per Data e Giocatore")
-    chart1 = (
-        alt.Chart(daily_summary)
-        .mark_bar()
-        .encode(
-            x=alt.X("DATE_STR:N", title="Data Seduta"),
-            y=alt.Y("SALTI_GIORNO:Q", title="Nr. Salti"),
-            color=alt.Color("ATHLETE:N", title="Giocatore"),
-            tooltip=["DATE_STR", "ATHLETE", "SALTI_GIORNO", "MAX_GIORNO"],
-        )
-        .properties(height=380)
-    )
-    st.altair_chart(chart1, use_container_width=True)
-
 # ==============================================================================
-# SCHERMATA 3: MODULO DATALOAD CON INSERIMENTO RAPIDO DA APP
+# SCHERMATA 3: MODULO DATALOAD
 # ==============================================================================
 elif st.session_state.page == "dataload":
   col_h1, col_h2 = st.columns([8, 2])
   with col_h1:
-    st.markdown("### 🏋️‍♂️ **DataLoad** — Carichi, Massimali & Inserimento Rapido")
+    st.markdown("### 🏋️‍♂️ **DataLoad** — Carichi, Massimali & Valutazione Forza")
   with col_h2:
     if st.button("🏠 Torna alla Home", use_container_width=True):
       st.session_state.page = "home"
@@ -489,181 +525,161 @@ elif st.session_state.page == "dataload":
   allowed_athletes = ACCESS_CODES.get(token, "ALL")
 
   if allowed_athletes == "ALL":
-    st.sidebar.success("🔓 Accesso Completo: Roster Cuneo Volley")
+    st.sidebar.success("🔓 Visualizzazione: Roster Completo")
   else:
-    st.sidebar.success(f"🔓 Accesso Riservato: {', '.join(allowed_athletes)}")
+    st.sidebar.success(f"🔓 Visualizzazione: {', '.join(allowed_athletes)}")
+
+  # GESTIONE ADMIN NELLA SIDEBAR
+  st.sidebar.divider()
+  st.sidebar.markdown("##### 🛠️ Area Riservata Admin")
+  if not st.session_state.is_admin:
+    admin_pwd = st.sidebar.text_input("Password Admin:", type="password", key="adm_pwd")
+    if st.sidebar.button("Sblocca Modifiche 🔐"):
+      if admin_pwd == "cuneo123":  # <-- Puoi cambiare qui la tua password segreta
+        st.session_state.is_admin = True
+        st.sidebar.success("✅ Modalità Admin Attiva!")
+        st.rerun()
+      else:
+        st.sidebar.error("❌ Password errata")
+  else:
+    st.sidebar.success("👑 Accesso Admin Attivo (Modifiche Abilitate)")
+    if st.sidebar.button("Blocca / Esci da Admin"):
+      st.session_state.is_admin = False
+      st.rerun()
 
   df_load = load_load_data()
-  if allowed_athletes != "ALL" and not df_load.empty:
-    df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
+  df_force = load_google_sheet_force()
 
-  # Tab per separare Inserimento Rapido, Valutazione Forza e Tonnellaggio
-  tab_fast, tab_force_eval, tab1 = st.tabs([
-      "✏️ Inserimento Rapido (Da App)",
-      "🏋️ Tabella & Grafici Forza",
-      "📊 Tonnellaggio & Volume Pesi",
-  ])
+  if allowed_athletes != "ALL":
+    if not df_load.empty:
+      df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
+    if not df_force.empty:
+      df_force = df_force[df_force["ATHLETE"].isin(allowed_athletes)]
 
-  with tab_fast:
-    st.markdown(
-        "##### ⚡ Inserisci o Aggiorna i Dati di Forza direttamente dall'App"
-    )
-    st.info(
-        "Compila i campi sottostanti per registrare la performance dell'atleta."
-        " Il massimale teorico (1RM) e la forza relativa verranno calcolati"
-        " automaticamente all'istante."
-    )
+  st.sidebar.divider()
+  st.sidebar.header("🔍 Filtri Selezione & Confronto")
 
-    with st.form("form_inserimento_forza"):
-      col_f1, col_f2 = st.columns(2)
-      with col_f1:
-        atleta_sel = st.selectbox(
-            "Seleziona Atleta",
-            list(ruoli_dict.keys())
-            if allowed_athletes == "ALL"
-            else allowed_athletes,
-        )
-        esercizio_sel = st.selectbox(
-            "Esercizio", ["Back Squat", "Front Squat", "Stacco QB"]
-        )
-      with col_f2:
-        peso_usato = st.number_input(
-            "Peso Usato (kg)", min_value=0.0, max_value=300.0, value=100.0, step=1.0
-        )
-        reps = st.number_input(
-            "Ripetizioni Eseguite", min_value=1, max_value=20, value=3, step=1
-        )
-        rir = st.number_input(
-            "RIR (Ripetizioni in Riserva)",
-            min_value=0,
-            max_value=5,
-            value=1,
-            step=1,
-        )
+  # Se l'utente è Admin, mostriamo anche il tab di inserimento rapido
+  if st.session_state.is_admin:
+    tab_fast, tab_force_eval, tab1 = st.tabs([
+        "✏️ Inserimento Rapido (Admin)",
+        "🏋️ Valutazione Forza & 1RM",
+        "📊 Tonnellaggio & Volume Pesi",
+    ])
+  else:
+    tab_force_eval, tab1 = st.tabs([
+        "🏋️ Valutazione Forza & 1RM",
+        "📊 Tonnellaggio & Volume Pesi",
+    ])
 
-      submitted = st.form_submit_button("Salva e Calcola 💾")
-      if submitted:
-        bw = PESI_CORPOREI_DEFAULT.get(atleta_sel, 85.0)
-        # Calcolo 1RM Teorico con Formula Epley corretta per RIR
-        rm_teorico = peso_usato * (1 + (reps + rir) / 30)
-        forza_relativa = rm_teorico / bw
+  if st.session_state.is_admin:
+    with tab_fast:
+      st.markdown("##### ⚡ Pannello Inserimento Rapido Carichi")
+      st.info("Inserisci i dati dell'atleta. Il sistema calcolerà in automatico l'1RM teorico e la forza relativa.")
 
-        # Rimuoviamo eventuale record precedente per lo stesso atleta ed esercizio
-        db = st.session_state.local_force_db
-        db = db[
-            ~(
-                (db["ATHLETE"] == atleta_sel)
-                & (db["ESERCIZIO"] == esercizio_sel)
-            )
-        ]
+      with st.form("form_admin_carichi"):
+        col_a1, col_a2 = st.columns(2)
+        with col_a1:
+          atleta_sel = st.selectbox("Seleziona Atleta", list(ruoli_dict.keys()))
+          esercizio_sel = st.selectbox("Esercizio", ["Back Squat", "Front Squat", "Stacco QB"])
+        with col_a2:
+          peso_usato = st.number_input("Peso Usato (kg)", min_value=0.0, max_value=300.0, value=100.0, step=1.0)
+          reps = st.number_input("Ripetizioni", min_value=1, max_value=20, value=3, step=1)
+          rir = st.number_input("RIR", min_value=0, max_value=5, value=1, step=1)
 
-        # Aggiungiamo il nuovo record
-        nuova_riga = pd.DataFrame([{
-            "ATHLETE": atleta_sel,
-            "ESERCIZIO": esercizio_sel,
-            "BW": bw,
-            "Peso usato": peso_usato,
-            "Reps": reps,
-            "RIR": rir,
-            "1RM Teorico": round(rm_teorico, 1),
-            "1RM/BW": round(forza_relativa, 2),
-        }])
+        submitted_admin = st.form_submit_button("Salva e Calcola 💾")
+        if submitted_admin:
+          bw = PESI_CORPOREI_DEFAULT.get(atleta_sel, 85.0)
+          rm_teorico = peso_usato * (1 + (reps + rir) / 30)
+          forza_relativa = rm_teorico / bw
 
-        st.session_state.local_force_db = pd.concat(
-            [db, nuova_riga], ignore_index=True
-        )
-        st.success(
-            f"✅ Salvato! 1RM Teorico calcolato per {atleta_sel}:"
-            f" **{round(rm_teorico, 1)} kg** (Forza Relativa:"
-            f" **{round(forza_relativa, 2)} xBW**)"
-        )
+          db = st.session_state.local_force_db
+          db = db[~((db["ATHLETE"] == atleta_sel) & (db["ESERCIZIO"] == esercizio_sel))]
+          nuova_riga = pd.DataFrame([{
+              "ATHLETE": atleta_sel,
+              "ESERCIZIO": esercizio_sel,
+              "BW": bw,
+              "Peso usato": peso_usato,
+              "Reps": reps,
+              "RIR": rir,
+              "1RM Teorico": round(rm_teorico, 1),
+              "1RM/BW": round(forza_relativa, 2)
+          }])
+          st.session_state.local_force_db = pd.concat([db, nuova_riga], ignore_index=True)
+          st.success(f"✅ Salvato! 1RM Teorico per {atleta_sel}: **{round(rm_teorico, 1)} kg**")
 
-    # Mostra la tabella dei dati salvati localmente
-    if not st.session_state.local_force_db.empty:
-      st.markdown("---")
-      st.markdown("##### 📋 Dati di Forza Inseriti nella Sessione Corrente")
-      st.dataframe(
-          st.session_state.local_force_db, use_container_width=True
-      )
-
-      if st.button("🗑️ Pulisci Tabella Inserimenti"):
-        st.session_state.local_force_db = pd.DataFrame(
-            columns=[
-                "ATHLETE",
-                "ESERCIZIO",
-                "BW",
-                "Peso usato",
-                "Reps",
-                "RIR",
-                "1RM Teorico",
-                "1RM/BW",
-            ]
-        )
-        st.rerun()
+      if not st.session_state.local_force_db.empty:
+        st.markdown("---")
+        st.markdown("##### 📋 Dati Modificati in questa Sessione")
+        st.dataframe(st.session_state.local_force_db, use_container_width=True)
 
   with tab_force_eval:
-    st.markdown("##### 🏋️‍♂️ Analisi Massimali & Forza Relativa")
+    st.markdown("##### 🏋️‍♂️ Valutazione Forza & Massimali Teorici")
+
+    # Uniamo i dati del foglio Google con eventuali modifiche fatte dall'Admin in sessione
     df_f_local = st.session_state.local_force_db
+    if not df_f_local.empty and not df_force.empty:
+      # Sostituisce i record aggiornati dall'admin
+      for idx, row in df_f_local.iterrows():
+        mask = (df_force["ATHLETE"] == row["ATHLETE"]) & (df_force["ESERCIZIO"] == row["ESERCIZIO"])
+        if mask.any():
+          df_force.loc[mask, "Peso usato"] = row["Peso usato"]
+          df_force.loc[mask, "Reps"] = row["Reps"]
+          df_force.loc[mask, "RIR"] = row["RIR"]
+          df_force.loc[mask, "1RM Teorico"] = row["1RM Teorico"]
+          df_force.loc[mask, "1RM/BW"] = row["1RM/BW"]
+        else:
+          df_force = pd.concat([df_force, pd.DataFrame([row])], ignore_index=True)
 
-    if not df_f_local.empty:
-      selected_ex = st.selectbox(
-          "Filtra Esercizio per Grafico:", df_f_local["ESERCIZIO"].unique()
-      )
-      df_ex_sub = df_f_local[df_f_local["ESERCIZIO"] == selected_ex]
+    if not df_force.empty and "ESERCIZIO" in df_force.columns:
+      col_ex1, col_ex2 = st.columns([1, 2])
+      with col_ex1:
+        selected_ex = st.selectbox("Seleziona Esercizio di Forza:", df_force["ESERCIZIO"].unique())
 
-      col_g1, col_g2 = st.columns(2)
-      with col_g1:
+      df_force_sub = df_force[df_force["ESERCIZIO"] == selected_ex]
+
+      giocatori_force = sorted(df_force_sub["ATHLETE"].unique())
+      selected_f_players = st.multiselect("Filtra per Giocatore/i:", giocatori_force, default=giocatori_force)
+
+      if selected_f_players:
+        df_force_sub = df_force_sub[df_force_sub["ATHLETE"].isin(selected_f_players)]
+
+      cols_to_show = [c for c in ["ATHLETE", "ROLE", "BW", "Peso usato", "Reps", "RIR", "1RM Teorico", "1RM/BW", "1RM Ideale"] if c in df_force_sub.columns]
+      st.dataframe(df_force_sub[cols_to_show], use_container_width=True)
+
+      col_f1, col_f2 = st.columns(2)
+      with col_f1:
         st.write(f"**1RM Teorico (kg) — {selected_ex}**")
-        chart_1rm = (
-            alt.Chart(df_ex_sub)
-            .mark_bar(color="#2563eb")
-            .encode(
-                x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
-                y=alt.Y("1RM Teorico:Q", title="1RM Teorico (kg)"),
-                tooltip=["ATHLETE", "Peso usato", "Reps", "1RM Teorico"],
-            )
-            .properties(height=350)
-        )
+        chart_1rm = alt.Chart(df_force_sub).mark_bar(color="#2563eb").encode(
+            x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
+            y=alt.Y("1RM Teorico:Q", title="1RM Teorico (kg)"),
+            tooltip=["ATHLETE", "BW", "Peso usato", "Reps", "1RM Teorico", "1RM/BW"]
+        ).properties(height=360)
         st.altair_chart(chart_1rm, use_container_width=True)
 
-      with col_g2:
+      with col_f2:
         st.write(f"**Forza Relativa (1RM / BW) — {selected_ex}**")
-        chart_fr = (
-            alt.Chart(df_ex_sub)
-            .mark_bar(color="#16a34a")
-            .encode(
-                x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
-                y=alt.Y("1RM/BW:Q", title="Forza Relativa (xBW)"),
-                tooltip=["ATHLETE", "BW", "1RM/BW"],
-            )
-            .properties(height=350)
-        )
+        chart_fr = alt.Chart(df_force_sub).mark_bar(color="#16a34a").encode(
+            x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
+            y=alt.Y("1RM/BW:Q", title="Forza Relativa (xBW)"),
+            tooltip=["ATHLETE", "BW", "1RM/BW", "1RM Teorico"]
+        ).properties(height=360)
         st.altair_chart(chart_fr, use_container_width=True)
     else:
-      st.info(
-          "ℹ️ Non ci sono ancora dati inseriti. Usa il tab 'Inserimento"
-          " Rapido' per aggiungere i primi carichi."
-      )
+      st.info("ℹ️ Nessun dato di forza disponibile.")
 
   with tab1:
     if not df_load.empty:
-      load_daily = (
-          df_load.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
-          .agg(TONNELLAGGIO_GIORNO=("TOTAL_LOAD", "sum"))
-          .reset_index()
-      )
+      load_daily = df_load.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"]).agg(
+          TONNELLAGGIO_GIORNO=("TOTAL_LOAD", "sum")
+      ).reset_index()
       st.markdown("##### 🏋️‍♂️ Tonnellaggio Sollevato per Data e Giocatore (kg)")
-      chart_l1 = (
-          alt.Chart(load_daily)
-          .mark_bar()
-          .encode(
-              x=alt.X("DATE_STR:N", title="Data Seduta Pesi"),
-              y=alt.Y("TONNELLAGGIO_GIORNO:Q", title="Tonnellaggio Totale (kg)"),
-              color=alt.Color("ATHLETE:N", title="Giocatore"),
-              tooltip=["DATE_STR", "ATHLETE", "TONNELLAGGIO_GIORNO"],
-          )
-          .properties(height=380)
-      )
+      chart_l1 = alt.Chart(load_daily).mark_bar().encode(
+          x=alt.X("DATE_STR:N", title="Data Seduta Pesi"),
+          y=alt.Y("TONNELLAGGIO_GIORNO:Q", title="Tonnellaggio Totale (kg)"),
+          color=alt.Color("ATHLETE:N", title="Giocatore"),
+          tooltip=["DATE_STR", "ATHLETE", "TONNELLAGGIO_GIORNO"]
+      ).properties(height=380)
       st.altair_chart(chart_l1, use_container_width=True)
     else:
-      st.info("ℹ️ Nessun dato di tonnellaggio giornaliero disponibile.")
+      st.info("ℹ️ Nessun dato di tonnellaggio disponibile.")
