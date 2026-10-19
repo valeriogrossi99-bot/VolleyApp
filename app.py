@@ -612,6 +612,54 @@ elif st.session_state.page == "datajump":
       )
       st.altair_chart(chart2, use_container_width=True)
 
+      st.divider()
+      st.markdown("##### 📈 Andamento dei Salti all'Interno delle Singole Sessioni")
+      st.info(
+          "I grafici seguenti mostrano l'altezza dei singoli salti in ordine"
+          " cronologico per ciascuna seduta di allenamento selezionata."
+      )
+
+      df_session_seq = df_f.copy()
+      df_session_seq = df_session_seq.sort_values(by=["DATE_DT", "ATHLETE"])
+      df_session_seq["NUM_SALTO"] = df_session_seq.groupby(
+          ["DATE_STR", "ATHLETE"]
+      ).cumcount() + 1
+
+      date_disponibili = sorted(df_session_seq["DATE_STR"].unique())
+
+      if not date_disponibili:
+        st.warning("Nessuna sessione trovata con i filtri attuali.")
+      else:
+        for data_seduta in date_disponibili:
+          df_data_sub = df_session_seq[
+              df_session_seq["DATE_STR"] == data_seduta
+          ]
+
+          st.markdown(f"**📅 Seduta del: {data_seduta}**")
+
+          chart_intra = (
+              alt.Chart(df_data_sub)
+              .mark_line(point=True, strokeWidth=2)
+              .encode(
+                  x=alt.X(
+                      "NUM_SALTO:Q",
+                      title="Progressione Salti nella Seduta",
+                  ),
+                  y=alt.Y(
+                      "JUMP HEIGHT(cm):Q", title="Altezza Salto (cm)"
+                  ),
+                  color=alt.Color("ATHLETE:N", title="Giocatore"),
+                  tooltip=[
+                      "ATHLETE",
+                      "NUM_SALTO",
+                      "JUMP HEIGHT(cm)",
+                      "JUMP_BAND",
+                  ],
+              )
+              .properties(height=300, width="container")
+          )
+          st.altair_chart(chart_intra, use_container_width=True)
+
   with tab2:
     if not weekly_summary.empty:
       st.markdown("##### 🔵 Volume Salti Settimanali")
