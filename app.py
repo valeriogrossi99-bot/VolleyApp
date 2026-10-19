@@ -1,5 +1,6 @@
 import glob
 import os
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -15,7 +16,6 @@ st.set_page_config(
 st.markdown(
     """
     <head>
-        <!-- Icona ufficiale Cuneo Volley forzata direttamente per i dispositivi mobili -->
         <link rel="apple-touch-icon" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10">
         <link rel="shortcut icon" href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10">
         <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,7 +24,6 @@ st.markdown(
     </head>
     
     <style>
-    /* Rimozione elementi grafici di Streamlit per interfaccia pulita */
     header {visibility: hidden;}
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -239,7 +238,6 @@ def load_all_sessions():
   df["WEEK"] = get_custom_week(df["DATE_DT"])
   df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
 
-  # Categorizzazione delle fasce di salto
   def classify_jump(h):
     try:
       val = float(h)
@@ -257,7 +255,6 @@ def load_all_sessions():
       return "JUMPS > 70"
 
   df["JUMP_BAND"] = df["JUMP HEIGHT(cm)"].apply(classify_jump)
-
   return df
 
 
@@ -465,7 +462,6 @@ with tab_settimanale:
 with tab_fasce:
   st.markdown("##### 🎯 Distribuzione Volume Salti per Fasce d'Altezza")
   if not df_filtered.empty:
-    # Definizione esplicita dell'ordine desiderato
     order_list = [
         "JUMPS < 30",
         "JUMPS 30-50",
@@ -480,7 +476,6 @@ with tab_fasce:
         "Numero Salti": [counts.get(b, 0) for b in order_list],
     })
 
-    # Grafico Altair con ordinamento rigido e vincolato
     chart_altair = (
         alt.Chart(band_df)
         .mark_bar(color="#2563eb")
