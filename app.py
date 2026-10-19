@@ -4,15 +4,15 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-# 1. Configurazione Iniziale della Pagina
+# 1. Configurazione della Pagina
 st.set_page_config(
-    page_title="Cuneo Volley — Performance Hub",
+    page_title="DataJump",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# 2. CSS Personalizzato & PWA
+# 2. CSS Personalizzato, Sfondo Bianco e Stile Card Home Page
 st.markdown(
     """
     <head>
@@ -32,7 +32,7 @@ st.markdown(
         background-color: #ffffff;
         color: #1f2937;
     }
-    
+
     div[data-testid="stMetric"] {
         background-color: #f8fafc;
         border: 1px solid #e2e8f0;
@@ -74,6 +74,38 @@ st.markdown(
         font-size: 1.1rem;
         font-weight: 700;
     }
+
+    /* Stile per le Card della Home */
+    .module-card {
+        background-color: #f8fafc;
+        border: 2px solid #e2e8f0;
+        border-radius: 20px;
+        padding: 35px 25px;
+        text-align: center;
+        box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.06);
+        transition: transform 0.2s, border-color 0.2s;
+        margin-bottom: 20px;
+    }
+    .module-card:hover {
+        border-color: #2563eb;
+        transform: translateY(-4px);
+    }
+    .module-icon {
+        font-size: 3.5rem;
+        margin-bottom: 10px;
+    }
+    .module-title {
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 8px;
+    }
+    .module-desc {
+        font-size: 0.95rem;
+        color: #64748b;
+        margin-bottom: 0px;
+    }
+
     h1, h2, h3 {
         color: #0f172a;
     }
@@ -82,7 +114,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Roster Ufficiale e Info Giocatori
+# 3. Inizializzazione della Sessione di Navigazione (State)
+if "page" not in st.session_state:
+  st.session_state.page = "home"
+
+# 4. Roster Ufficiale e Info Giocatori
 ruoli_dict = {
     "Bryan Argilagos": "Palleggiatore",
     "Manuel Coscione": "Palleggiatore",
@@ -191,7 +227,7 @@ def extract_week_num(w_str):
     return 0
 
 
-# 4. Funzioni di Caricamento Dati
+# 5. Funzioni Caricamento Dati
 @st.cache_data
 def load_jump_data():
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
@@ -287,38 +323,80 @@ def load_load_data():
   return df
 
 
-# 5. Header Hub Principale
-col_shield, col_title = st.columns([1, 10])
-with col_shield:
-  st.image(
-      "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10",
-      width=70,
-  )
-with col_title:
-  st.markdown(
-      """
-        <h1 style="margin: 0; font-size: 2.5rem; color: #0f172a; letter-spacing: 1px;">Cuneo Volley — Performance Hub</h1>
-        <p style="margin: 0; color: #475569; font-size: 1rem;">Piattaforma UFFICIALE Staff Tecnico & Preparazione Fisica</p>
-    """,
-      unsafe_allow_html=True,
-  )
+# ==============================================================================
+# SCHERMATA 1: HOME PAGE GENERALE (LANDING PAGE)
+# ==============================================================================
+if st.session_state.page == "home":
+  st.write("")
+  st.write("")
 
-st.divider()
+  # Stemma centrale Cuneo Volley
+  col_a, col_center, col_b = st.columns([1, 2, 1])
+  with col_center:
+    st.image(
+        "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10",
+        width=130,
+    )
+    st.markdown(
+        """
+            <h1 style="text-align: center; font-size: 2.8rem; margin-top: 10px; margin-bottom: 5px;">Cuneo Volley</h1>
+            <p style="text-align: center; color: #64748b; font-size: 1.1rem; font-weight: 500;">Performance & Analytics Hub</p>
+        """,
+        unsafe_allow_html=True,
+    )
 
-# 6. Selezione Modulo (DataJump vs DataLoad)
-st.sidebar.title("🎛️ Modulo Attivo")
-app_mode = st.sidebar.radio(
-    "Seleziona Modulo da Consultare:",
-    ["🚀 DataJump (Monitoraggio Salti)", "🏋️‍♂️ DataLoad (Carichi Sala Pesi)"],
-)
+  st.write("")
+  st.write("")
 
-st.sidebar.divider()
+  # I due quadrati/card principali per selezionare il modulo
+  col_card1, col_card2 = st.columns(2)
+
+  with col_card1:
+    st.markdown(
+        """
+        <div class="module-card">
+            <div class="module-icon">🚀</div>
+            <div class="module-title">DataJump</div>
+            <p class="module-desc">Monitoraggio Salti, Elevazione & Distribuzione Fasce</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "Accedi a DataJump 🚀", use_container_width=True, type="primary"
+    ):
+      st.session_state.page = "datajump"
+      st.rerun()
+
+  with col_card2:
+    st.markdown(
+        """
+        <div class="module-card">
+            <div class="module-icon">🏋️‍♂️</div>
+            <div class="module-title">DataLoad</div>
+            <p class="module-desc">Monitoraggio Carichi Sala Pesi & Tonnellaggio</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "Accedi a DataLoad 🏋️‍♂️", use_container_width=True, type="primary"
+    ):
+      st.session_state.page = "dataload"
+      st.rerun()
 
 # ==============================================================================
-# MODULO 1: DATAJUMP (MONITORAGGIO SALTI)
+# SCHERMATA 2: MODULO DATAJUMP (MONITORAGGIO SALTI)
 # ==============================================================================
-if app_mode == "🚀 DataJump (Monitoraggio Salti)":
-  st.subheader("🚀 DataJump — Monitoraggio Salti & Elevazione")
+elif st.session_state.page == "datajump":
+  # Header e Pulsante Torna alla Home
+  col_h1, col_h2 = st.columns([8, 2])
+  with col_h1:
+    st.markdown("### 🚀 **DataJump** — Monitoraggio Salti & Elevazione")
+  with col_h2:
+    if st.button("🏠 Torna alla Home", use_container_width=True):
+      st.session_state.page = "home"
+      st.rerun()
 
   df_jump = load_jump_data()
 
@@ -366,7 +444,7 @@ if app_mode == "🚀 DataJump (Monitoraggio Salti)":
   if selected_sessions:
     df_f = df_f[df_f["DATE_STR"].isin(selected_sessions)]
 
-  # Player Card per DataJump
+  # Player Card
   if selected_players:
     if len(selected_players) == 1:
       p = selected_players[0]
@@ -556,10 +634,17 @@ if app_mode == "🚀 DataJump (Monitoraggio Salti)":
       st.altair_chart(chart_b, use_container_width=True)
 
 # ==============================================================================
-# MODULO 2: DATALOAD (CARICHI SALA PESI DIVISI PER GIOCATORE)
+# SCHERMATA 3: MODULO DATALOAD (CARICHI SALA PESI)
 # ==============================================================================
-else:
-  st.subheader("🏋️‍♂️ DataLoad — Monitoraggio Carichi Sala Pesi")
+elif st.session_state.page == "dataload":
+  # Header e Pulsante Torna alla Home
+  col_h1, col_h2 = st.columns([8, 2])
+  with col_h1:
+    st.markdown("### 🏋️‍♂️ **DataLoad** — Monitoraggio Carichi Sala Pesi")
+  with col_h2:
+    if st.button("🏠 Torna alla Home", use_container_width=True):
+      st.session_state.page = "home"
+      st.rerun()
 
   df_load = load_load_data()
 
@@ -571,7 +656,7 @@ else:
     )
     st.stop()
 
-  # Filtri Sidebar equiparati a DataJump
+  # Filtri Sidebar
   st.sidebar.header("🔍 Filtri DataLoad")
   ruoli_list = sorted(list(set(ruoli_dict.values())))
   selected_roles = st.sidebar.multiselect("Filtra per Ruolo", ruoli_list)
@@ -608,7 +693,7 @@ else:
   if selected_sessions:
     df_f = df_f[df_f["DATE_STR"].isin(selected_sessions)]
 
-  # Player Card per DataLoad
+  # Player Card
   if selected_players:
     if len(selected_players) == 1:
       p = selected_players[0]
@@ -635,7 +720,7 @@ else:
           f"📊 **Modalità Confronto Attiva**: Stai confrontando **{len(selected_players)} giocatori** ({', '.join(selected_players)})."
       )
 
-  # Summaries Sala Pesi per Giocatore
+  # Summaries Sala Pesi
   load_daily = (
       df_f.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
       .agg(
