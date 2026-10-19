@@ -3,52 +3,96 @@ import os
 import pandas as pd
 import streamlit as st
 
-# Configurazione della pagina
+# Configurazione della pagina con i colori e logo di Cuneo Volley
 st.set_page_config(
-    page_title="Volley Performance Dashboard",
-    page_icon="🏐",
+    page_title="DataJump - Cuneo Volley",
+    page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# --- CSS PERSONALIZZATO PER GRAFICA E PLAYER CARD ---
+# --- CSS PERSONALIZZATO CON I COLORI BIANCOBLÙ DEL CUNEO VOLLEY ---
 st.markdown(
     """
     <style>
-    div[data-testid="stMetric"] {
-        background-color: #1E222D;
-        border: 1px solid #2A2E3D;
-        padding: 15px;
-        border-radius: 12px;
-        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
+    /* Colori generali e sfondo ispirati al Cuneo Volley (Blu Notte e Azzurro) */
+    .stApp {
+        background-color: #0b1329;
+        color: #f0f6fc;
     }
+    
+    /* Card delle metriche (KPI) */
+    div[data-testid="stMetric"] {
+        background-color: #152238;
+        border: 1px solid #1e3a60;
+        padding: 18px;
+        border-radius: 12px;
+        box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
+    }
+    
     div[data-testid="stMetric"] label {
-        color: #8B949E !important;
-        font-size: 0.9rem !important;
+        color: #93c5fd !important;
+        font-size: 0.95rem !important;
         font-weight: 600;
     }
+    
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-        color: #58A6FF !important;
+        color: #60a5fa !important;
         font-weight: 700 !important;
     }
+
+    /* Barra laterale (Sidebar) */
     section[data-testid="stSidebar"] {
-        background-color: #161B22;
-        border-right: 1px solid #30363D;
+        background-color: #0d172e;
+        border-right: 1px solid #1e3a60;
     }
+
+    /* Card Profilo Giocatore */
     .player-card {
-        background-color: #1E222D;
-        border: 1px solid #2A2E3D;
-        padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 20px;
+        background-color: #152238;
+        border: 1px solid #1e3a60;
+        padding: 24px;
+        border-radius: 14px;
+        margin-bottom: 25px;
+        box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.5);
+    }
+    
+    .player-title {
+        color: #ffffff;
+        font-size: 1.8rem;
+        font-weight: 800;
+        margin-bottom: 5px;
+    }
+
+    .player-role {
+        color: #60a5fa;
+        font-size: 1.1rem;
+        font-weight: 700;
+    }
+    
+    /* Intestazioni e Testi */
+    h1, h2, h3 {
+        color: #ffffff;
     }
     </style>
 """,
     unsafe_allow_html=True,
 )
 
-st.title("🏐 Volley Performance Dashboard")
-st.caption("Monitoraggio carichi e analisi dinamica dei salti - Sola Lettura")
+# --- HEADER PERSONALIZZATO CON STEMMA E TITOLO DATAJUMP ---
+col_logo, col_title = st.columns([1, 8])
+with col_logo:
+  # Stemma ufficiale / Icona rappresentativa Cuneo Volley
+  st.image(
+      "https://cuneovolley.it/wp-content/uploads/2021/09/cropped-logo-cuneo-volley-32x32.png",
+      width=60,
+  )
+with col_title:
+  st.title("DataJump")
+  st.caption(
+      "📊 Cuneo Volley — Dashboard Ufficiale Monitoraggio Salti & Carichi"
+      " (Sola Lettura)"
+  )
 
 # --- ROSTER UFFICIALE E RUOLI ---
 ruoli_dict = {
@@ -66,7 +110,6 @@ ruoli_dict = {
     "Nicoló Volpe": "Centrale",
 }
 
-# Informazioni dettagliate e link scheda ufficiale Cuneo Volley per ogni atleta
 player_info = {
     "Bryan Argilagos": {
         "bio": "Palleggiatore | Altezza: 200 cm | Classe 2007",
@@ -255,10 +298,10 @@ if selected_player != "Tutti":
   st.markdown(
       f"""
     <div class="player-card">
-        <h2>🏐 {selected_player}</h2>
-        <p style="font-size: 1.1rem; color: #58A6FF; margin-bottom: 5px;"><b>Ruolo:</b> {role_val}</p>
-        <p style="color: #8B949E; margin-bottom: 15px;">{bio_val}</p>
-        <a href="{link_val}" target="_blank" style="color: #58A6FF; text-decoration: none; font-weight: 600;">🔗 Visita la scheda ufficiale su Cuneo Volley &rarr;</a>
+        <div class="player-title">🛡️ {selected_player}</div>
+        <div class="player-role">Ruolo: {role_val}</div>
+        <p style="color: #93c5fd; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
+        <a href="{link_val}" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
     </div>
     """,
       unsafe_allow_html=True,
@@ -350,29 +393,4 @@ with tab_settimanale:
     if not weekly_summary.empty:
       st.bar_chart(
           weekly_summary.pivot_table(
-              index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
-          )
-      )
-  with col_w2:
-    st.write("**Salto Max Settimanale (cm)**")
-    if not weekly_summary.empty:
-      st.line_chart(
-          weekly_summary.pivot_table(
-              index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
-          )
-      )
-  with col_w3:
-    st.write("**Media Salti Settimanale (cm)**")
-    if not weekly_summary.empty:
-      st.line_chart(
-          weekly_summary.pivot_table(
-              index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
-          )
-      )
-
-# --- TABELLE DETTAGLIATE ---
-with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
-  st.write("**Riepilogo Giornaliero**")
-  st.dataframe(daily_summary, use_container_width=True)
-  st.write("**Riepilogo Settimanale**")
-  st.dataframe(weekly_summary, use_container_width=True)
+              index="WEEK", values="SALTI_SETTIM
