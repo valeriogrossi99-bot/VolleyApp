@@ -1,3 +1,5 @@
+import glob
+import os
 import pandas as pd
 import streamlit as st
 
@@ -6,7 +8,7 @@ st.set_page_config(
     page_title="Volley Performance App", page_icon="🏐", layout="wide"
 )
 
-st.title("🏐 Volley Performance Dashboard")
+st.title("🏐 Volley Performance Dashboard - Analytics Salti")
 
 # --- ROSTER UFFICIALE E RUOLI ---
 ruoli_dict = {
@@ -17,144 +19,229 @@ ruoli_dict = {
     "Alexandre Strehlau": "Schiacciatore",
     "Ethan Champlin": "Schiacciatore",
     "Federico Giraudo": "Schiacciatore",
+    "Nathan Feral": "Opposto",
     "Poriya Khanzadeh": "Schiacciatore",
     # Opposti
-    "Nathan Feral": "Opposto",
     "Lorenzo Sala": "Opposto",
     # Centrali
     "Emanuele Barberio": "Centrale",
     "Leandro Mosca": "Centrale",
     "Lorenzo Codarin": "Centrale",
     "Nicoló Volpe": "Centrale",
+    # Liberi
+    "Mimmo Cavaccini": "Libero",
+    "Thibault Loubeyre": "Libero",
 }
 
-# --- BARRA LATERALE: UPLOAD FILE MULTIPLI ---
-st.sidebar.header("📁 Carica Sedute (CSV)")
 
-uploaded_files = st.sidebar.file_uploader(
-    "Seleziona uno o più file CSV di PerfBook",
-    type=["csv"],
-    accept_multiple_files=True,
-)
+# --- CARICAMENTO AUTOMATICO DI TUTTI I FILE DA GITHUB ---
+@st.cache_data
+def load_all_sessions():
+  # Cerca sia nella radice sia nella cartella data/
+  files = glob.glob("data/*.csv") + glob.glob("*.csv")
 
-lista_dataframe = []
+  if not files:
+    return pd.DataFrame()
 
-# 1. Se l'utente carica dei file dall'interfaccia dell'app
-if uploaded_files:
-  for file in uploaded_files:
+  df_list = []
+  for f in files:
     try:
-      df_temp = pd.read_csv(file, sep=";")
-      lista_dataframe.append(df_temp)
-    except Exception as e:
-      st.sidebar.error(f"Errore nel caricare {file.name}: {e}")
+      temp = pd.read_csv(f, sep=";")
+      if "JUMP HEIGHT(cm)" in temp.columns:
+        df_list.append(temp)
+    except Exception:
+      pass
 
-# 2. Se non sono caricati file manualmente, proviamo a caricare il file di default su GitHub
-else:
-  filename_default = "PERFBOOK_JUMPS_Total Area_2026_10_15_17_53_44.csv"
-  try:
-    df_default = pd.read_csv(filename_default, sep=";")
-    lista_dataframe.append(df_default)
-  except Exception:
-    pass
+  if not df_list:
+    return pd.DataFrame()
 
-# Se nessun file è presente o caricato
-if not lista_dataframe:
+  df = pd.concat(df_list, ignore_index=True)
+
+  # Creazione atleta e ruolo
+  df["ATHLETE"] = df["NAME"] + " " + df["SURNAME"]
+  df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
+
+  # Conversione Data e Settimana ISO
+  df["DATE_DT"] = pd.to_datetime(df["DATE"])
+  df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
+  df["WEEK"] = (
+      df["DATE_DT"].dt.year.astype(str)
+      + "-W"
+      + df["DATE_DT"].dt.isocalendar().week.astype(str).zfill(2)
+  )
+
+  return df
+
+
+df = load_all_sessions()
+
+if df.empty:
   st.warning(
-      "⚠️ Nessun file dati caricato. Utilizza la barra laterale per caricare i"
-      " file CSV delle sedute."
+      "⚠️ Nessun file CSV trovato nel repository GitHub. Carica i file nella"
+      " cartella 'data/' per visualizzare i dati."
   )
   st.stop()
 
-# Unione di tutti i file CSV in un unico grande DataFrame
-df_totale = pd.concat(lista_dataframe, ignore_index=True)
-
-# Creazione colonna Nome Completo
-df_totale["ATHLETE"] = df_totale["NAME"] + " " + df_totale["SURNAME"]
-
-# Assegnazione Ruolo
-df_totale["ROLE"] = df_totale["ATHLETE"].map(ruoli_dict).fillna("Non Assegnato")
-
-# Pulizia/Conversione della colonna Data se presente
-if "DATE" in df_totale.columns:
-  df_totale["DATE"] = pd.to_datetime(df_totale["DATE"]).dt.strftime("%Y-%m-%d")
-
 # --- BARRA LATERALE: FILTRI ---
-st.sidebar.divider()
-st.sidebar.header("🔍 Filtri")
+st.sidebar.header("🔍 Filtri Selezione")
 
-# Filtro Ruolo
-ruoli_disponibili = ["Tutti"] + sorted(list(set(ruoli_dict.values())))
-selected_role = st.sidebar.selectbox("Filtra per Ruolo", ruoli_disponibili)
+# 1. Filtro Ruolo
+ruoli_list = ["Tutti"] + sorted(list(set(ruoli_dict.values())))
+selected_role = st.sidebar.selectbox("Filtra per Ruolo", ruoli_list)
 
 if selected_role != "Tutti":
-  df_filtered = df_totale[df_totale["ROLE"] == selected_role]
+  df_role = df[df["ROLE"] == selected_role]
 else:
-  df_filtered = df_totale
+  df_role = df
 
-# Filtro Giocatore
-giocatori_disponibili = ["Tutti"] + sorted(df_filtered["ATHLETE"].unique())
+# 2. Filtro Giocatore
+giocatori_list = sorted(df_role["ATHLETE"].unique())
 selected_player = st.sidebar.selectbox(
-    "Filtra per Giocatore", giocatori_disponibili
+    "Filtra per Giocatore", ["Tutti"] + giocatori_list
 )
 
 if selected_player != "Tutti":
-  df_filtered = df_filtered[df_filtered["ATHLETE"] == selected_player]
+  df_filtered = df_role[df_role["ATHLETE"] == selected_player]
+else:
+  df_filtered = df_role
 
-# Filtro Data (se presenti più sedute)
-if "DATE" in df_filtered.columns:
-  date_disponibili = ["Tutte le date"] + sorted(
-      df_filtered["DATE"].unique().tolist()
-  )
-  selected_date = st.sidebar.selectbox(
-      "Filtra per Data Seduta", date_disponibili
-  )
-  if selected_date != "Tutte le date":
-    df_filtered = df_filtered[df_filtered["DATE"] == selected_date]
+# 3. Filtro Settimana / Sessione
+st.sidebar.divider()
+st.sidebar.header("📅 Filtro Temporale")
 
-# --- METRICHE E KPI ---
-st.subheader("📊 Metriche Principali")
-col1, col2, col3, col4 = st.columns(4)
+settimane_list = ["Tutte le settimane"] + sorted(
+    df_filtered["WEEK"].unique().tolist(), reverse=True
+)
+selected_week = st.sidebar.selectbox("Settimana ISO", settimane_list)
+
+if selected_week != "Tutte le settimane":
+  df_filtered = df_filtered[df_filtered["WEEK"] == selected_week]
+
+sessioni_list = ["Tutte le sessioni"] + sorted(
+    df_filtered["DATE_STR"].unique().tolist(), reverse=True
+)
+selected_session = st.sidebar.selectbox("Data Sessione", sessioni_list)
+
+if selected_session != "Tutte le sessioni":
+  df_filtered = df_filtered[df_filtered["DATE_STR"] == selected_session]
+
+
+# --- CALCOLO METRICHE AVANZATE PER SESSIONE ---
+def calculate_session_metrics(data):
+  # Raggruppa per Atleta, Data e Settimana
+  grouped = data.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
+
+  # Calcolo dei 5 migliori salti per sessione (AVG Top 5)
+  top5_avg = (
+      data.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])["JUMP HEIGHT(cm)"]
+      .nlargest(5)
+      .groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
+      .mean()
+      .reset_index(name="AVG_TOP_5")
+  )
+
+  metrics = grouped.agg(
+      SALTI_SESSIONE=("JUMP HEIGHT(cm)", "count"),
+      MAX_JUMP=("JUMP HEIGHT(cm)", "max"),
+      AVG_JUMP=("JUMP HEIGHT(cm)", "mean"),
+      AVG_IMPACT=("LANDING IMPACT (g)", "mean"),
+  ).reset_index()
+
+  res = pd.merge(metrics, top5_avg, on=["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
+  return res
+
+
+session_summary = calculate_session_metrics(df_filtered)
+
+# --- PANNELLO METRICHE CHIAVE ---
+st.subheader(
+    f"📊 Summary Metriche - Giocatore: {selected_player} | Ruolo:"
+    f" {selected_role}"
+)
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+tot_salti_settimana = df_filtered.groupby("WEEK")["JUMP HEIGHT(cm)"].count()
+val_salti_sett = (
+    tot_salti_settimana.iloc[-1] if not tot_salti_settimana.empty else 0
+)
 
 with col1:
-  st.metric("Salti Totali Registrati", len(df_filtered))
+  st.metric("Salti Settimana Corrente", val_salti_sett)
 with col2:
-  max_h = (
-      df_filtered["JUMP HEIGHT(cm)"].max() if not df_filtered.empty else 0
+  salti_sess = (
+      session_summary["SALTI_SESSIONE"].mean()
+      if not session_summary.empty
+      else 0
   )
-  st.metric("Altezza Max", f"{max_h:.1f} cm")
+  st.metric("Media Salti / Sessione", f"{salti_sess:.0f}")
 with col3:
-  mean_h = (
-      df_filtered["JUMP HEIGHT(cm)"].mean() if not df_filtered.empty else 0
+  max_salto = (
+      session_summary["MAX_JUMP"].max() if not session_summary.empty else 0
   )
-  st.metric("Altezza Media", f"{mean_h:.1f} cm")
+  st.metric("Salto Max Assoluto", f"{max_salto:.1f} cm")
 with col4:
-  mean_impact = (
-      df_filtered["LANDING IMPACT (g)"].mean() if not df_filtered.empty else 0
+  avg_top5 = (
+      session_summary["AVG_TOP_5"].max() if not session_summary.empty else 0
   )
-  st.metric("Impatto Medio Atterraggio", f"{mean_impact:.1f} g")
+  st.metric("Top AVG 5 Best Jump", f"{avg_top5:.1f} cm")
+with col5:
+  imp_med = (
+      session_summary["AVG_IMPACT"].mean() if not session_summary.empty else 0
+  )
+  st.metric("Impatto Medio Atterraggio", f"{imp_med:.1f} g")
 
 st.divider()
 
-# --- GRAFICI ---
-st.subheader("📈 Analisi dei Salti")
-col_a, col_b = st.columns(2)
+# --- GRAFICI DI ANDAMENTO TEMPORALE ---
+st.subheader("📈 Grafici di Andamento Temporale per Sessione")
 
-with col_a:
-  st.write("**Andamento Altezza Salti**")
-  if not df_filtered.empty:
-    st.line_chart(df_filtered["JUMP HEIGHT(cm)"].reset_index(drop=True))
-  else:
-    st.info("Nessun dato con i filtri attuali.")
+tab1, tab2, tab3 = st.tabs([
+    "🚀 Salto Max & AVG Top 5",
+    "🔄 Volume Salti (Sessione vs Settimana)",
+    "⚡ Impatto Atterraggio (g)",
+])
 
-with col_b:
-  st.write("**Rapporto Altezza Salto vs Impatto (g)**")
-  if not df_filtered.empty:
-    st.scatter_chart(
-        df_filtered, x="JUMP HEIGHT(cm)", y="LANDING IMPACT (g)"
+with tab1:
+  st.write("##### Andamento Salto Max e Media dei 5 Migliori Salti (cm)")
+  if not session_summary.empty:
+    chart_data = session_summary.pivot_table(
+        index="DATE_STR", values=["MAX_JUMP", "AVG_TOP_5"], aggfunc="max"
     )
+    st.line_chart(chart_data)
   else:
-    st.info("Nessun dato con i filtri attuali.")
+    st.info("Nessun dato disponibile.")
 
-# TABELLA DATI
-with st.expander("📋 Mostra Registro Dati"):
-  st.dataframe(df_filtered)
+with tab2:
+  st.write("##### Volume Salti per Sessione e Totale Settimanale")
+  col_left, col_right = st.columns(2)
+
+  with col_left:
+    st.write("**Salti Totali per Sessione**")
+    if not session_summary.empty:
+      chart_sess = session_summary.pivot_table(
+          index="DATE_STR", values="SALTI_SESSIONE", aggfunc="sum"
+      )
+      st.bar_chart(chart_sess)
+
+  with col_right:
+    st.write("**Salti Totali per Settimana**")
+    if not df_filtered.empty:
+      weekly_data = (
+          df_filtered.groupby("WEEK")["JUMP HEIGHT(cm)"]
+          .count()
+          .reset_index(name="SALTI_SETTIMANA")
+      )
+      st.bar_chart(weekly_data.set_index("WEEK"))
+
+with tab3:
+  st.write("##### Andamento dell'Impatto all'Atterraggio (g)")
+  if not session_summary.empty:
+    chart_impact = session_summary.pivot_table(
+        index="DATE_STR", values="AVG_IMPACT", aggfunc="mean"
+    )
+    st.line_chart(chart_impact)
+
+# --- REGISTRO DETTAGLIATO PER SESSIONE ---
+with st.expander("📋 Tabella Riassuntiva per Sessione"):
+  st.dataframe(session_summary)
