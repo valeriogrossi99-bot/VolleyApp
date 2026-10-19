@@ -871,3 +871,28 @@ elif st.session_state.page == "dataload":
         st.altair_chart(chart_fr, use_container_width=True)
     else:
       st.info(
+          "ℹ️ Impossibile caricare il foglio Google di valutazione della forza."
+      )
+
+  with tab1:
+    if not df_load.empty:
+      load_daily = (
+          df_load.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
+          .agg(TONNELLAGGIO_GIORNO=("TOTAL_LOAD", "sum"))
+          .reset_index()
+      )
+      st.markdown("##### 🏋️‍♂️ Tonnellaggio Sollevato per Data e Giocatore (kg)")
+      chart_l1 = (
+          alt.Chart(load_daily)
+          .mark_bar()
+          .encode(
+              x=alt.X("DATE_STR:N", title="Data Seduta Pesi"),
+              y=alt.Y("TONNELLAGGIO_GIORNO:Q", title="Tonnellaggio Totale (kg)"),
+              color=alt.Color("ATHLETE:N", title="Giocatore"),
+              tooltip=["DATE_STR", "ATHLETE", "TONNELLAGGIO_GIORNO"],
+          )
+          .properties(height=380)
+      )
+      st.altair_chart(chart_l1, use_container_width=True)
+    else:
+      st.info("ℹ️ Nessun dato di tonnellaggio disponibile.")
