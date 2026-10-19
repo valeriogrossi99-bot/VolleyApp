@@ -4,7 +4,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-# 1. Configurazione della Pagina con Sidebar Visibile di Default
+# 1. Configurazione della Pagina
 st.set_page_config(
     page_title="Cuneo Volley Performance Hub",
     page_icon="🛡️",
@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 2. CSS Personalizzato - PULSANTE SIDEBAR SEMPRE VISIBILE
+# 2. CSS Personalizzato
 st.markdown(
     """
     <head>
@@ -24,11 +24,9 @@ st.markdown(
     </head>
     
     <style>
-    /* Rimozione footer ed elementi inutili SENZA nascondere il bottone della Sidebar */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 
-    /* Assicura che il pulsante per aprire la sidebar sia sempre ben visibile */
     button[data-testid="stHeaderIconButton"] {
         visibility: visible !important;
         display: block !important;
@@ -39,7 +37,6 @@ st.markdown(
         color: #1f2937;
     }
 
-    /* Centratura Logo Home */
     .logo-container {
         display: flex;
         justify-content: center;
@@ -91,7 +88,7 @@ st.markdown(
         font-weight: 700;
     }
 
-    /* TRASFORMAZIONE PULSANTI HOME IN CARD CLICCABILI */
+    /* CARD HOME PAGE CLICCABILI */
     div.stButton > button {
         background-color: #f8fafc !important;
         color: #0f172a !important;
@@ -121,9 +118,22 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Inizializzazione Sessione Navigazione
+# 3. Inizializzazione Sessione e Stato Autenticazione
 if "page" not in st.session_state:
   st.session_state.page = "home"
+
+if "auth_token" not in st.session_state:
+  st.session_state.auth_token = None
+
+if "pending_module" not in st.session_state:
+  st.session_state.pending_module = None
+
+# Mappatura Codici PIN
+ACCESS_CODES = {
+    "CUNEO": "ALL",
+    "FRACN": ["Nathan Feral"],
+    "ITA-CN": ["Leandro Mosca"],
+}
 
 # 4. Roster Ufficiale e Info Giocatori
 ruoli_dict = {
@@ -234,34 +244,7 @@ def extract_week_num(w_str):
     return 0
 
 
-# 5. Mappatura Codici Accesso Riservato
-ACCESS_CODES = {
-    "CUNEO": "ALL",
-    "FRA-CN": ["Nathan Feral"],
-    "ITA-CN": ["Leandro Mosca"],
-}
-
-
-def render_access_control():
-  st.sidebar.header("🔑 Accesso Riservato")
-  code_in = st.sidebar.text_input(
-      "Inserisci Codice PIN:", type="password"
-  ).strip()
-
-  if code_in in ACCESS_CODES:
-    allowed = ACCESS_CODES[code_in]
-    if allowed == "ALL":
-      st.sidebar.success("🔓 Accesso Completo: Roster Cuneo Volley")
-    else:
-      st.sidebar.success(f"🔓 Accesso Riservato: {', '.join(allowed)}")
-    return allowed
-  else:
-    if code_in != "":
-      st.sidebar.error("❌ Codice Errato")
-    return "ALL"
-
-
-# 6. Funzioni Caricamento Dati
+# 5. Funzioni Caricamento Dati
 @st.cache_data
 def load_jump_data():
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
@@ -358,7 +341,7 @@ def load_load_data():
 
 
 # ==============================================================================
-# SCHERMATA 1: HOME PAGE GENERALE
+# SCHERMATA 1: HOME PAGE (CON RICHIESTA PIN DI AUTENTICAZIONE)
 # ==============================================================================
 if st.session_state.page == "home":
   st.markdown(
@@ -367,33 +350,71 @@ if st.session_state.page == "home":
             <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTrtebVKDZUcg5g5UGl6FaaJFeAsNY8i6YtrvdbHcHrAw&s=10" width="140">
         </div>
         <h1 style="text-align: center; font-size: 2.8rem; margin-top: 10px; margin-bottom: 5px;">Cuneo Volley</h1>
-        <p style="text-align: center; color: #64748b; font-size: 1.1rem; font-weight: 500; margin-bottom: 40px;">Performance & Analytics Hub</p>
+        <p style="text-align: center; color: #64748b; font-size: 1.1rem; font-weight: 500; margin-bottom: 30px;">Performance & Analytics Hub</p>
     """,
       unsafe_allow_html=True,
   )
 
-  col_card1, col_card2 = st.columns(2)
-
-  with col_card1:
-    btn_datajump = st.button(
-        "🚀\n\nDataJump\n\nMonitoraggio Salti, Elevazione & Distribuzione"
-        " Fasce",
-        key="btn_jump",
-        use_container_width=True,
+  # Se l'utente deve inserire il PIN dopo aver cliccato un modulo
+  if st.session_state.pending_module:
+    st.warning(
+        f"🔑 **Inserisci il codice PIN di accesso per proseguire verso"
+        f" {st.session_state.pending_module.upper()}**"
     )
-    if btn_datajump:
-      st.session_state.page = "datajump"
+
+    col_pin, col_btn = st.columns([3, 1])
+    with col_pin:
+      entered_pin = st.text_input(
+          "Codice di Sicurezza:", type="password", key="pin_input"
+      ).strip()
+    with col_btn:
+      st.write("")
+      st.write("")
+      if st.button("Conferma PIN 🔓", use_container_width=True):
+        if entered_pin in ACCESS_CODES:
+          st.session_state.auth_token = entered_pin
+          st.session_state.page = st.session_state.pending_module
+          st.session_state.pending_module = None
+          st.rerun()
+        else:
+          st.error("❌ Codice non valido. Riprova.")
+
+    if st.button("❌ Annulla", use_container_width=False):
+      st.session_state.pending_module = None
       st.rerun()
 
-  with col_card2:
-    btn_dataload = st.button(
-        "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi Sala Pesi & Tonnellaggio",
-        key="btn_load",
-        use_container_width=True,
-    )
-    if btn_dataload:
-      st.session_state.page = "dataload"
-      st.rerun()
+  else:
+    # Selezione tra DataJump e DataLoad
+    col_card1, col_card2 = st.columns(2)
+
+    with col_card1:
+      btn_datajump = st.button(
+          "🚀\n\nDataJump\n\nMonitoraggio Salti, Elevazione & Distribuzione"
+          " Fasce",
+          key="btn_jump",
+          use_container_width=True,
+      )
+      if btn_datajump:
+        if st.session_state.auth_token is not None:
+          st.session_state.page = "datajump"
+          st.rerun()
+        else:
+          st.session_state.pending_module = "datajump"
+          st.rerun()
+
+    with col_card2:
+      btn_dataload = st.button(
+          "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi Sala Pesi & Tonnellaggio",
+          key="btn_load",
+          use_container_width=True,
+      )
+      if btn_dataload:
+        if st.session_state.auth_token is not None:
+          st.session_state.page = "dataload"
+          st.rerun()
+        else:
+          st.session_state.pending_module = "dataload"
+          st.rerun()
 
 # ==============================================================================
 # SCHERMATA 2: MODULO DATAJUMP
@@ -407,19 +428,24 @@ elif st.session_state.page == "datajump":
       st.session_state.page = "home"
       st.rerun()
 
-  # Controllo Accessi e Filtri Sidebar
-  allowed_athletes = render_access_control()
+  # Applicazione Permessi da PIN memorizzato
+  token = st.session_state.auth_token
+  allowed_athletes = ACCESS_CODES.get(token, "ALL")
+
+  if allowed_athletes == "ALL":
+    st.sidebar.success("🔓 Accesso Completo: Roster Cuneo Volley")
+  else:
+    st.sidebar.success(f"🔓 Accesso Riservato: {', '.join(allowed_athletes)}")
 
   df_jump = load_jump_data()
 
   if df_jump.empty:
     st.warning(
-        "⚠️ Nessun file CSV relativo ai salti trovato. Carica i file contenenti"
-        " 'JUMP HEIGHT(cm)' nella cartella 'data/'."
+        "⚠️ Nessun file CSV relativo ai salti trovato nella cartella 'data/'."
     )
     st.stop()
 
-  # Filtro sicurezza in base al codice PIN
+  # Filtro sicurezza
   if allowed_athletes != "ALL":
     df_jump = df_jump[df_jump["ATHLETE"].isin(allowed_athletes)]
 
@@ -488,7 +514,6 @@ elif st.session_state.page == "datajump":
           f"📊 **Modalità Confronto Attiva**: Stai confrontando **{len(selected_players)} giocatori** ({', '.join(selected_players)})."
       )
 
-  # Summaries
   daily_summary = (
       df_f.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
       .agg(
@@ -662,8 +687,14 @@ elif st.session_state.page == "dataload":
       st.session_state.page = "home"
       st.rerun()
 
-  # Controllo Accessi e Filtri Sidebar
-  allowed_athletes = render_access_control()
+  # Applicazione Permessi da PIN memorizzato
+  token = st.session_state.auth_token
+  allowed_athletes = ACCESS_CODES.get(token, "ALL")
+
+  if allowed_athletes == "ALL":
+    st.sidebar.success("🔓 Accesso Completo: Roster Cuneo Volley")
+  else:
+    st.sidebar.success(f"🔓 Accesso Riservato: {', '.join(allowed_athletes)}")
 
   df_load = load_load_data()
 
@@ -675,7 +706,7 @@ elif st.session_state.page == "dataload":
     )
     st.stop()
 
-  # Filtro sicurezza in base al codice PIN
+  # Filtro sicurezza
   if allowed_athletes != "ALL":
     df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
 
@@ -744,7 +775,6 @@ elif st.session_state.page == "dataload":
           f"📊 **Modalità Confronto Attiva**: Stai confrontando **{len(selected_players)} giocatori** ({', '.join(selected_players)})."
       )
 
-  # Summaries Sala Pesi
   load_daily = (
       df_f.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
       .agg(
@@ -763,7 +793,7 @@ elif st.session_state.page == "dataload":
       .reset_index()
   )
 
-  # KPI Sala Pesi
+  # KPI
   c1, c2, c3, c4 = st.columns(4)
   c1.metric(
       "Tonnellaggio Totale",
@@ -818,7 +848,7 @@ elif st.session_state.page == "dataload":
                   "TONNELLAGGIO_SETTIMANA:Q", title="Tonnellaggio Settimanale (kg)"
               ),
               color=alt.Color("ATHLETE:N", title="Giocatore"),
-              tooltip=["WEEK", "ATHLETE", "SALTI_SETTIMANA" if "SALTI_SETTIMANA" in load_weekly.columns else "TONNELLAGGIO_SETTIMANA"],
+              tooltip=["WEEK", "ATHLETE", "TONNELLAGGIO_SETTIMANA"],
           )
           .properties(height=380)
       )
