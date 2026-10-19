@@ -9,7 +9,7 @@ st.set_page_config(
     page_title="DataJump",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # 2. CSS Personalizzato, Sfondo Bianco, Centratura Stemma e Card Cliccabili
@@ -115,7 +115,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Inizializzazione della Sessione di Navigazione
+# 3. Inizializzazione Sessione Navigazione
 if "page" not in st.session_state:
   st.session_state.page = "home"
 
@@ -228,7 +228,34 @@ def extract_week_num(w_str):
     return 0
 
 
-# 5. Funzioni Caricamento Dati
+# 5. Mappatura Codici di Accesso Riservato
+ACCESS_CODES = {
+    "CUNEO": "ALL",
+    "FRA-CN": ["Nathan Feral"],
+    "ITA-CN": ["Leandro Mosca"],
+}
+
+
+def render_access_control():
+  st.sidebar.header("🔑 Accesso Riservato")
+  code_in = st.sidebar.text_input(
+      "Inserisci Codice PIN:", type="password"
+  ).strip()
+
+  if code_in in ACCESS_CODES:
+    allowed = ACCESS_CODES[code_in]
+    if allowed == "ALL":
+      st.sidebar.success("🔓 Accesso Completo: Roster Cuneo Volley")
+    else:
+      st.sidebar.success(f"🔓 Accesso Riservato: {', '.join(allowed)}")
+    return allowed
+  else:
+    if code_in != "":
+      st.sidebar.error("❌ Codice Errato")
+    return "ALL"
+
+
+# 6. Funzioni Caricamento Dati
 @st.cache_data
 def load_jump_data():
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
@@ -325,10 +352,9 @@ def load_load_data():
 
 
 # ==============================================================================
-# SCHERMATA 1: HOME PAGE GENERALE (LANDING PAGE CON STEMMA CENTRATO)
+# SCHERMATA 1: HOME PAGE GENERALE
 # ==============================================================================
 if st.session_state.page == "home":
-  # Contenitore dello Stemma Ufficiale Perfettamente Centrato
   st.markdown(
       """
         <div class="logo-container">
@@ -340,7 +366,6 @@ if st.session_state.page == "home":
       unsafe_allow_html=True,
   )
 
-  # I due quadrati/card cliccabili direttamente
   col_card1, col_card2 = st.columns(2)
 
   with col_card1:
@@ -365,7 +390,7 @@ if st.session_state.page == "home":
       st.rerun()
 
 # ==============================================================================
-# SCHERMATA 2: MODULO DATAJUMP (MONITORAGGIO SALTI)
+# SCHERMATA 2: MODULO DATAJUMP
 # ==============================================================================
 elif st.session_state.page == "datajump":
   col_h1, col_h2 = st.columns([8, 2])
@@ -376,6 +401,9 @@ elif st.session_state.page == "datajump":
       st.session_state.page = "home"
       st.rerun()
 
+  # Controllo Accessi da Sidebar
+  allowed_athletes = render_access_control()
+
   df_jump = load_jump_data()
 
   if df_jump.empty:
@@ -385,9 +413,14 @@ elif st.session_state.page == "datajump":
     )
     st.stop()
 
-  # Filtri Sidebar
-  st.sidebar.header("🔍 Filtri DataJump")
-  ruoli_list = sorted(list(set(ruoli_dict.values())))
+  # Filtro sicurezza
+  if allowed_athletes != "ALL":
+    df_jump = df_jump[df_jump["ATHLETE"].isin(allowed_athletes)]
+
+  st.sidebar.divider()
+  st.sidebar.header("🔍 Filtri Selezione & Confronto")
+
+  ruoli_list = sorted(list(set(df_jump["ROLE"].unique())))
   selected_roles = st.sidebar.multiselect("Filtra per Ruolo", ruoli_list)
 
   df_f = df_jump.copy()
@@ -612,7 +645,7 @@ elif st.session_state.page == "datajump":
       st.altair_chart(chart_b, use_container_width=True)
 
 # ==============================================================================
-# SCHERMATA 3: MODULO DATALOAD (CARICHI SALA PESI)
+# SCHERMATA 3: MODULO DATALOAD
 # ==============================================================================
 elif st.session_state.page == "dataload":
   col_h1, col_h2 = st.columns([8, 2])
@@ -622,6 +655,9 @@ elif st.session_state.page == "dataload":
     if st.button("🏠 Torna alla Home", use_container_width=True):
       st.session_state.page = "home"
       st.rerun()
+
+  # Controllo Accessi da Sidebar
+  allowed_athletes = render_access_control()
 
   df_load = load_load_data()
 
@@ -633,9 +669,14 @@ elif st.session_state.page == "dataload":
     )
     st.stop()
 
-  # Filtri Sidebar
-  st.sidebar.header("🔍 Filtri DataLoad")
-  ruoli_list = sorted(list(set(ruoli_dict.values())))
+  # Filtro sicurezza
+  if allowed_athletes != "ALL":
+    df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
+
+  st.sidebar.divider()
+  st.sidebar.header("🔍 Filtri Selezione & Confronto")
+
+  ruoli_list = sorted(list(set(df_load["ROLE"].unique())))
   selected_roles = st.sidebar.multiselect("Filtra per Ruolo", ruoli_list)
 
   df_f = df_load.copy()
