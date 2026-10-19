@@ -31,10 +31,9 @@ ruoli_dict = {
 }
 
 
-# --- CARICAMENTO AUTOMATICO DI TUTTI I FILE DA GITHUB ---
+# --- CARICAMENTO AUTOMATICO DI TUTTI I FILE CSV ---
 @st.cache_data
 def load_all_sessions():
-  # Cerca sia nella cartella data/ che nella radice del progetto
   files = glob.glob("data/*.csv") + glob.glob("*.csv")
 
   if not files:
@@ -53,11 +52,9 @@ def load_all_sessions():
     return pd.DataFrame()
 
   df = pd.concat(df_list, ignore_index=True)
-
-  # Pulizia spazi nei nomi delle colonne se presenti
   df.columns = df.columns.str.strip()
 
-  # Creazione atleta e ruolo
+  # Nome atleta e associazione ruolo
   df["ATHLETE"] = (
       df["NAME"].astype(str).str.strip()
       + " "
@@ -65,7 +62,7 @@ def load_all_sessions():
   )
   df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
 
-  # Conversione Data e Settimana ISO in modo sicuro
+  # Gestione date e settimane ISO
   df["DATE_DT"] = pd.to_datetime(df["DATE"], errors="coerce")
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
 
@@ -83,8 +80,8 @@ df = load_all_sessions()
 
 if df.empty:
   st.warning(
-      "⚠️ Nessun file CSV valido trovato. Verifica di aver caricato il file dei"
-      " salti su GitHub."
+      "⚠️ Nessun file CSV valido trovato. Carica i file CSV nella cartella"
+      " 'data/' o nella radice del progetto."
   )
   st.stop()
 
@@ -111,7 +108,7 @@ if selected_player != "Tutti":
 else:
   df_filtered = df_role
 
-# 3. Filtro Settimana / Sessione
+# 3. Filtri Temporali
 st.sidebar.divider()
 st.sidebar.header("📅 Filtro Temporale")
 
@@ -132,116 +129,118 @@ if selected_session != "Tutte le sessioni":
   df_filtered = df_filtered[df_filtered["DATE_STR"] == selected_session]
 
 
-# --- CALCOLO METRICHE AVANZATE PER SESSIONE ---
-def calculate_session_metrics(data):
-  if data.empty:
-    return pd.DataFrame()
+# --- ELABORAZIONE DATI GIORNALIERI E SETTIMANALI ---
+# A) Raggruppamento Giornaliero (Sessione)
+daily_summary = (
+    df_filtered.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
+    .agg(
+        SALTI_GIORNO=("JUMP HEIGHT(cm)", "count"),
+        MAX_GIORNO=("JUMP HEIGHT(cm)", "max"),
+        MEDIA_GIORNO=("JUMP HEIGHT(cm)", "mean"),
+    )
+    .reset_index()
+)
 
-  grouped = data.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
+# B) Raggruppamento Settimanale
+weekly_summary = (
+    df_filtered.groupby(["ATHLETE", "ROLE", "WEEK"])
+    .agg(
+        SALTI_SETTIMANA=("JUMP HEIGHT(cm)", "count"),
+        MAX_SETTIMANA=("JUMP HEIGHT(cm)", "max"),
+        MEDIA_SETTIMANA=("JUMP HEIGHT(cm)", "mean"),
+    )
+    .reset_index()
+)
 
-  # Calcolo dei 5 migliori salti per sessione (AVG Top 5)
-  top5_avg = (
-      data.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])["JUMP HEIGHT(cm)"]
-      .nlargest(5)
-      .groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
-      .mean()
-      .reset_index(name="AVG_TOP_5")
-  )
-
-  metrics = grouped.agg(
-      SALTI_SESSIONE=("JUMP HEIGHT(cm)", "count"),
-      MAX_JUMP=("JUMP HEIGHT(cm)", "max"),
-      AVG_JUMP=("JUMP HEIGHT(cm)", "mean"),
-      AVG_IMPACT=("LANDING IMPACT (g)", "mean"),
-  ).reset_index()
-
-  res = pd.merge(metrics, top5_avg, on=["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
-  return res
-
-
-session_summary = calculate_session_metrics(df_filtered)
-
-# --- PANNELLO METRICHE CHIAVE ---
+# --- VISUALIZZAZIONE PANNELLI KPI ---
 st.subheader(
-    f"📊 Summary Metriche - Giocatore: {selected_player} | Ruolo:"
+    f"📊 Riepilogo Prestazioni - Giocatore: {selected_player} | Ruolo:"
     f" {selected_role}"
 )
 
-col1, col2, col3, col4, col5 = st.columns(5)
-
-tot_salti_settimana = df_filtered.groupby("WEEK")["JUMP HEIGHT(cm)"].count()
-val_salti_sett = (
-    tot_salti_settimana.iloc[-1]
-    if not tot_salti_settimana.empty
-    else len(df_filtered)
-)
+# SEZIONE GIORNALIERA (SESSIONE)
+st.markdown("### 📅 Dati Giornalieri (Ultima Sessione Selezionata)")
+col1, col2, col3 = st.columns(3)
 
 with col1:
-  st.metric("Salti Totali (Filtro)", len(df_filtered))
+  salti_g = (
+      daily_summary["SALTI_GIORNO"].iloc[-1]
+      if not daily_summary.empty
+      else len(df_filtered)
+  )
+  st.metric("Nr. Salti (Giornaliero)", f"{salti_g}")
 with col2:
-  salti_sess = (
-      session_summary["SALTI_SESSIONE"].mean()
-      if not session_summary.empty
-      else 0
+  max_g = (
+      daily_summary["MAX_GIORNO"].max() if not daily_summary.empty else 0
   )
-  st.metric("Media Salti / Sessione", f"{salti_sess:.0f}")
+  st.metric("Salto Max (Giornaliero)", f"{max_g:.1f} cm")
 with col3:
-  max_salto = (
-      session_summary["MAX_JUMP"].max() if not session_summary.empty else 0
+  med_g = (
+      daily_summary["MEDIA_GIORNO"].mean() if not daily_summary.empty else 0
   )
-  st.metric("Salto Max Assoluto", f"{max_salto:.1f} cm")
-with col4:
-  avg_top5 = (
-      session_summary["AVG_TOP_5"].max() if not session_summary.empty else 0
-  )
-  st.metric("Top AVG 5 Best Jump", f"{avg_top5:.1f} cm")
-with col5:
-  imp_med = (
-      session_summary["AVG_IMPACT"].mean() if not session_summary.empty else 0
-  )
-  st.metric("Impatto Medio Atterraggio", f"{imp_med:.1f} g")
+  st.metric("Media Salti (Giornaliera)", f"{med_g:.1f} cm")
 
 st.divider()
 
-# --- GRAFICI DI ANDAMENTO TEMPORALE ---
-st.subheader("📈 Grafici di Andamento Temporale per Sessione")
+# SEZIONE SETTIMANALE
+st.markdown("### 🗓️ Dati Settimanali (Ultima Settimana Selezionata)")
+col4, col5, col6 = st.columns(3)
 
-tab1, tab2, tab3 = st.tabs([
-    "🚀 Salto Max & AVG Top 5",
-    "🔄 Volume Salti (Sessione)",
-    "⚡ Impatto Atterraggio (g)",
-])
+with col4:
+  salti_w = (
+      weekly_summary["SALTI_SETTIMANA"].iloc[-1]
+      if not weekly_summary.empty
+      else 0
+  )
+  st.metric("Nr. Salti (Settimanale)", f"{salti_w}")
+with col5:
+  max_w = (
+      weekly_summary["MAX_SETTIMANA"].max() if not weekly_summary.empty else 0
+  )
+  st.metric("Salto Max (Settimanale)", f"{max_w:.1f} cm")
+with col6:
+  med_w = (
+      weekly_summary["MEDIA_SETTIMANA"].mean()
+      if not weekly_summary.empty
+      else 0
+  )
+  st.metric("Media Salti (Settimanale)", f"{med_w:.1f} cm")
 
-with tab1:
-  st.write("##### Andamento Salto Max e Media dei 5 Migliori Salti (cm)")
-  if not session_summary.empty:
-    chart_data = session_summary.pivot_table(
-        index="DATE_STR", values=["MAX_JUMP", "AVG_TOP_5"], aggfunc="max"
-    )
-    st.line_chart(chart_data)
-  else:
-    st.info("Nessun dato disponibile con i filtri attuali.")
+st.divider()
 
-with tab2:
-  st.write("##### Volume Salti per Sessione")
-  if not session_summary.empty:
-    chart_sess = session_summary.pivot_table(
-        index="DATE_STR", values="SALTI_SESSIONE", aggfunc="sum"
-    )
-    st.bar_chart(chart_sess)
-  else:
-    st.info("Nessun dato disponibile.")
+# --- GRAFICI DI ANDAMENTO TEMPORALE GIORNALIERO E SETTIMANALE ---
+st.subheader("📈 Grafici di Andamento Temporale")
 
-with tab3:
-  st.write("##### Andamento dell'Impatto all'Atterraggio (g)")
-  if not session_summary.empty:
-    chart_impact = session_summary.pivot_table(
-        index="DATE_STR", values="AVG_IMPACT", aggfunc="mean"
-    )
-    st.line_chart(chart_impact)
-  else:
-    st.info("Nessun dato disponibile.")
+tab_giornaliero, tab_settimanale = st.tabs(
+    ["📊 Andamento Giornaliero per Data", "🗓️ Andamento Settimanale per Settimana"]
+)
 
-# --- REGISTRO DETTAGLIATO PER SESSIONE ---
-with st.expander("📋 Tabella Riassuntiva per Sessione"):
-  st.dataframe(session_summary)
+with tab_giornaliero:
+  col_g1, col_g2, col_g3 = st.columns(3)
+
+  with col_g1:
+    st.write("**Numero di Salti Giornalieri**")
+    if not daily_summary.empty:
+      chart_salti_g = daily_summary.pivot_table(
+          index="DATE_STR", values="SALTI_GIORNO", aggfunc="sum"
+      )
+      st.bar_chart(chart_salti_g)
+
+  with col_g2:
+    st.write("**Salto Max Giornaliero (cm)**")
+    if not daily_summary.empty:
+      chart_max_g = daily_summary.pivot_table(
+          index="DATE_STR", values="MAX_GIORNO", aggfunc="max"
+      )
+      st.line_chart(chart_max_g)
+
+  with col_g3:
+    st.write("**Media Salti Giornaliera (cm)**")
+    if not daily_summary.empty:
+      chart_med_g = daily_summary.pivot_table(
+          index="DATE_STR", values="MEDIA_GIORNO", aggfunc="mean"
+      )
+      st.line_chart(chart_med_g)
+
+with tab_settimanale:
+  col_w1, col_w2, col_w3 = st.columns(3
