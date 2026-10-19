@@ -118,7 +118,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Inizializzazione Sessione e Stato Autenticazione
+# 3. Inizializzazione Sessione e Autenticazione
 if "page" not in st.session_state:
   st.session_state.page = "home"
 
@@ -135,7 +135,7 @@ ACCESS_CODES = {
     "ITA-CN": ["Leandro Mosca"],
 }
 
-# 4. Roster Ufficiale e Info Giocatori
+# 4. Roster Ufficiale
 ruoli_dict = {
     "Bryan Argilagos": "Palleggiatore",
     "Manuel Coscione": "Palleggiatore",
@@ -149,6 +149,25 @@ ruoli_dict = {
     "Leandro Mosca": "Centrale",
     "Lorenzo Codarin": "Centrale",
     "Nicoló Volpe": "Centrale",
+    "Mimmo Cavaccini": "Libero",
+    "Thibault Loubeyre": "Libero",
+}
+
+cognomi_to_full = {
+    "Argilagos": "Bryan Argilagos",
+    "Coscione": "Manuel Coscione",
+    "Strehlau": "Alexandre Strehlau",
+    "Champlin": "Ethan Champlin",
+    "Giraudo": "Federico Giraudo",
+    "Poriya": "Poriya Khanzadeh",
+    "Feral": "Nathan Feral",
+    "Sala": "Lorenzo Sala",
+    "Barberio": "Emanuele Barberio",
+    "Mosca": "Leandro Mosca",
+    "Codarin": "Lorenzo Codarin",
+    "Volpe": "Nicoló Volpe",
+    "Cavaccini": "Mimmo Cavaccini",
+    "Loubeyre": "Thibault Loubeyre",
 }
 
 player_info = {
@@ -340,8 +359,48 @@ def load_load_data():
   return df
 
 
+# --- CARICAMENTO DIRETTO FOGLIO GOOGLE VALUTAZIONE FORZA ---
+@st.cache_data(ttl=300)
+def load_google_sheet_force():
+  sheet_id = "1ib2DrRfODly8HT_V8c2PRNdALYt1_vDCAbvtAK7U1aw"
+  esercizi = ["Back Squat", "Front Squat", "Stacco QB"]
+  df_list = []
+
+  for ex in esercizi:
+    try:
+      url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={ex.replace(' ', '%20')}"
+      temp = pd.read_csv(url)
+      temp.columns = temp.columns.str.strip()
+      temp["ESERCIZIO"] = ex
+      df_list.append(temp)
+    except Exception:
+      pass
+
+  if not df_list:
+    return pd.DataFrame()
+
+  df = pd.concat(df_list, ignore_index=True)
+
+  # Mappatura Nomi Atleti Completi
+  df["ATHLETE"] = df["Atleta"].map(cognomi_to_full).fillna(df["Atleta"])
+  df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
+
+  # Conversioni Numeriche
+  df["BW"] = pd.to_numeric(df["BW"], errors="coerce").fillna(0)
+  df["Peso usato"] = pd.to_numeric(df["Peso usato"], errors="coerce").fillna(0)
+  df["Reps"] = pd.to_numeric(df["Reps"], errors="coerce").fillna(0)
+  df["RIR"] = pd.to_numeric(df["RIR"], errors="coerce").fillna(0)
+  df["1RM Teorico"] = pd.to_numeric(
+      df["1RM Teorico"], errors="coerce"
+  ).fillna(0)
+  df["1RM/BW"] = pd.to_numeric(df["1RM/BW"], errors="coerce").fillna(0)
+  df["1RM Ideale"] = pd.to_numeric(df["1RM Ideale"], errors="coerce").fillna(0)
+
+  return df
+
+
 # ==============================================================================
-# SCHERMATA 1: HOME PAGE (CON RICHIESTA PIN DI AUTENTICAZIONE)
+# SCHERMATA 1: HOME PAGE
 # ==============================================================================
 if st.session_state.page == "home":
   st.markdown(
@@ -355,7 +414,6 @@ if st.session_state.page == "home":
       unsafe_allow_html=True,
   )
 
-  # Se l'utente deve inserire il PIN dopo aver cliccato un modulo
   if st.session_state.pending_module:
     st.warning(
         f"🔑 **Inserisci il codice PIN di accesso per proseguire verso"
@@ -384,7 +442,6 @@ if st.session_state.page == "home":
       st.rerun()
 
   else:
-    # Selezione tra DataJump e DataLoad
     col_card1, col_card2 = st.columns(2)
 
     with col_card1:
@@ -404,7 +461,8 @@ if st.session_state.page == "home":
 
     with col_card2:
       btn_dataload = st.button(
-          "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi Sala Pesi & Tonnellaggio",
+          "🏋️‍♂️\n\nDataLoad\n\nMonitoraggio Carichi Sala Pesi, Massimali &"
+          " Valutazione Forza",
           key="btn_load",
           use_container_width=True,
       )
@@ -428,7 +486,6 @@ elif st.session_state.page == "datajump":
       st.session_state.page = "home"
       st.rerun()
 
-  # Applicazione Permessi da PIN memorizzato
   token = st.session_state.auth_token
   allowed_athletes = ACCESS_CODES.get(token, "ALL")
 
@@ -445,7 +502,6 @@ elif st.session_state.page == "datajump":
     )
     st.stop()
 
-  # Filtro sicurezza
   if allowed_athletes != "ALL":
     df_jump = df_jump[df_jump["ATHLETE"].isin(allowed_athletes)]
 
@@ -535,7 +591,6 @@ elif st.session_state.page == "datajump":
       .reset_index()
   )
 
-  # KPI
   c1, c2, c3, c4 = st.columns(4)
   c1.metric(
       "Totale Salti",
@@ -681,13 +736,12 @@ elif st.session_state.page == "datajump":
 elif st.session_state.page == "dataload":
   col_h1, col_h2 = st.columns([8, 2])
   with col_h1:
-    st.markdown("### 🏋️‍♂️ **DataLoad** — Monitoraggio Carichi Sala Pesi")
+    st.markdown("### 🏋️‍♂️ **DataLoad** — Monitoraggio Carichi & Valutazione Forza")
   with col_h2:
     if st.button("🏠 Torna alla Home", use_container_width=True):
       st.session_state.page = "home"
       st.rerun()
 
-  # Applicazione Permessi da PIN memorizzato
   token = st.session_state.auth_token
   allowed_athletes = ACCESS_CODES.get(token, "ALL")
 
@@ -697,131 +751,120 @@ elif st.session_state.page == "dataload":
     st.sidebar.success(f"🔓 Accesso Riservato: {', '.join(allowed_athletes)}")
 
   df_load = load_load_data()
+  df_force = load_google_sheet_force()
 
-  if df_load.empty:
-    st.info(
-        "ℹ️ Nessun file CSV relativo alla sala pesi caricato in 'data/'. Carica"
-        " file CSV contenenti dati di tonnellaggio/carichi per visualizzare le"
-        " analisi."
-    )
-    st.stop()
-
-  # Filtro sicurezza
   if allowed_athletes != "ALL":
-    df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
+    if not df_load.empty:
+      df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
+    if not df_force.empty:
+      df_force = df_force[df_force["ATHLETE"].isin(allowed_athletes)]
 
   st.sidebar.divider()
   st.sidebar.header("🔍 Filtri Selezione & Confronto")
 
-  ruoli_list = sorted(list(set(df_load["ROLE"].unique())))
-  selected_roles = st.sidebar.multiselect("Filtra per Ruolo", ruoli_list)
-
-  df_f = df_load.copy()
-  if selected_roles:
-    df_f = df_f[df_f["ROLE"].isin(selected_roles)]
-
-  giocatori_list = sorted(df_f["ATHLETE"].unique())
-  selected_players = st.sidebar.multiselect(
-      "Seleziona Giocatori da Analizzare / Confrontare", giocatori_list
-  )
-
-  if selected_players:
-    df_f = df_f[df_f["ATHLETE"].isin(selected_players)]
-
-  unique_weeks = sorted(
-      [w for w in df_f["WEEK"].unique() if pd.notna(w)],
-      key=extract_week_num,
-      reverse=True,
-  )
-  selected_weeks = st.sidebar.multiselect(
-      "Settimane di Lavoro", unique_weeks
-  )
-
-  if selected_weeks:
-    df_f = df_f[df_f["WEEK"].isin(selected_weeks)]
-
-  sessioni_list = sorted(
-      [d for d in df_f["DATE_STR"].unique() if pd.notna(d)], reverse=True
-  )
-  selected_sessions = st.sidebar.multiselect("Date Sedute", sessioni_list)
-
-  if selected_sessions:
-    df_f = df_f[df_f["DATE_STR"].isin(selected_sessions)]
-
-  # Player Card
-  if selected_players:
-    if len(selected_players) == 1:
-      p = selected_players[0]
-      role_val = ruoli_dict.get(p, "Atleta")
-      details = player_info.get(p, {})
-      bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
-      link_val = details.get(
-          "url", "https://cuneovolley.it/prima-squadra/giocatori"
-      )
-
-      st.markdown(
-          f"""
-            <div class="player-card">
-                <div class="player-title">🛡️ {p}</div>
-                <div class="player-role">Ruolo: {role_val}</div>
-                <p style="color: #475569; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
-                <a href="{link_val}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
-            </div>
-            """,
-          unsafe_allow_html=True,
-      )
-    else:
-      st.info(
-          f"📊 **Modalità Confronto Attiva**: Stai confrontando **{len(selected_players)} giocatori** ({', '.join(selected_players)})."
-      )
-
-  load_daily = (
-      df_f.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
-      .agg(
-          TONNELLAGGIO_GIORNO=("TOTAL_LOAD", "sum"),
-          CARICO_MAX=("TOTAL_LOAD", "max"),
-      )
-      .reset_index()
-  )
-
-  load_weekly = (
-      df_f.groupby(["ATHLETE", "ROLE", "WEEK"])
-      .agg(
-          TONNELLAGGIO_SETTIMANA=("TOTAL_LOAD", "sum"),
-          CARICO_MAX_SETTIMANA=("TOTAL_LOAD", "max"),
-      )
-      .reset_index()
-  )
-
-  # KPI
-  c1, c2, c3, c4 = st.columns(4)
-  c1.metric(
-      "Tonnellaggio Totale",
-      f"{load_daily['TONNELLAGGIO_GIORNO'].sum():,.0f} kg",
-  )
-  c2.metric(
-      "Carico Max Sollevato",
-      f"{load_daily['CARICO_MAX'].max() if not load_daily.empty else 0:,.0f} kg",
-  )
-  c3.metric(
-      "Media Tonnellaggio / Seduta",
-      f"{load_daily['TONNELLAGGIO_GIORNO'].mean() if not load_daily.empty else 0:,.0f} kg",
-  )
-  c4.metric(
-      "Giocatori Monitorati",
-      f"{len(df_f['ATHLETE'].unique()) if not df_f.empty else 0}",
-  )
-
-  st.divider()
-
-  tab1, tab2, tab3 = st.tabs([
+  # Tab per separare Tonnellaggio Sedute e Valutazione Forza
+  tab_force_eval, tab1, tab2, tab3 = st.tabs([
+      "🏋️ Valutazione Forza & 1RM (Google Sheet)",
       "📊 Tonnellaggio Giornaliero",
       "🗓️ Carico Settimanale",
-      "⚔️ Confronto Carichi Atleti",
+      "⚔️ Confronto Carichi",
   ])
 
+  with tab_force_eval:
+    st.markdown(
+        "##### 🏋️‍♂️ Valutazione Forza & Massimali Teorici (Sincronizzato da"
+        " Google Drive)"
+    )
+
+    if not df_force.empty:
+      col_ex1, col_ex2 = st.columns([1, 2])
+      with col_ex1:
+        selected_ex = st.selectbox(
+            "Seleziona Esercizio di Forza:", df_force["ESERCIZIO"].unique()
+        )
+
+      df_force_sub = df_force[df_force["ESERCIZIO"] == selected_ex]
+
+      # Filtro per atleti autorizzati
+      giocatori_force = sorted(df_force_sub["ATHLETE"].unique())
+      selected_f_players = st.multiselect(
+          "Filtra per Giocatore/i:", giocatori_force, default=giocatori_force
+      )
+
+      if selected_f_players:
+        df_force_sub = df_force_sub[
+            df_force_sub["ATHLETE"].isin(selected_f_players)
+        ]
+
+      # Tabella Sintetica Valutazione Forza
+      st.dataframe(
+          df_force_sub[[
+              "ATHLETE",
+              "ROLE",
+              "BW",
+              "Peso usato",
+              "Reps",
+              "RIR",
+              "1RM Teorico",
+              "1RM/BW",
+              "1RM Ideale",
+          ]],
+          use_container_width=True,
+      )
+
+      # Grafici Affiancati Massimali e Forza Relativa
+      col_f1, col_f2 = st.columns(2)
+
+      with col_f1:
+        st.write(f"**1RM Teorico (kg) — {selected_ex}**")
+        chart_1rm = (
+            alt.Chart(df_force_sub)
+            .mark_bar(color="#2563eb")
+            .encode(
+                x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
+                y=alt.Y("1RM Teorico:Q", title="1RM Teorico (kg)"),
+                tooltip=[
+                    "ATHLETE",
+                    "BW",
+                    "Peso usato",
+                    "Reps",
+                    "1RM Teorico",
+                    "1RM/BW",
+                ],
+            )
+            .properties(height=360)
+        )
+        st.altair_chart(chart_1rm, use_container_width=True)
+
+      with col_f2:
+        st.write(f"**Forza Relativa (1RM / BW) — {selected_ex}**")
+        chart_fr = (
+            alt.Chart(df_force_sub)
+            .mark_bar(color="#16a34a")
+            .encode(
+                x=alt.X("ATHLETE:N", sort="-y", title="Giocatore"),
+                y=alt.Y("1RM/BW:Q", title="Forza Relativa (xBW)"),
+                tooltip=["ATHLETE", "BW", "1RM/BW", "1RM Teorico"],
+            )
+            .properties(height=360)
+        )
+        st.altair_chart(chart_fr, use_container_width=True)
+
+    else:
+      st.info(
+          "ℹ️ Impossibile caricare il foglio Google di valutazione della forza."
+      )
+
   with tab1:
-    if not load_daily.empty:
+    if not df_load.empty:
+      load_daily = (
+          df_load.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
+          .agg(
+              TONNELLAGGIO_GIORNO=("TOTAL_LOAD", "sum"),
+              CARICO_MAX=("TOTAL_LOAD", "max"),
+          )
+          .reset_index()
+      )
       st.markdown("##### 🏋️‍♂️ Tonnellaggio Sollevato per Data e Giocatore (kg)")
       chart_l1 = (
           alt.Chart(load_daily)
@@ -835,9 +878,19 @@ elif st.session_state.page == "dataload":
           .properties(height=380)
       )
       st.altair_chart(chart_l1, use_container_width=True)
+    else:
+      st.info("ℹ️ Nessun dato di tonnellaggio giornaliero disponibile.")
 
   with tab2:
-    if not load_weekly.empty:
+    if not df_load.empty:
+      load_weekly = (
+          df_load.groupby(["ATHLETE", "ROLE", "WEEK"])
+          .agg(
+              TONNELLAGGIO_SETTIMANA=("TOTAL_LOAD", "sum"),
+              CARICO_MAX_SETTIMANA=("TOTAL_LOAD", "max"),
+          )
+          .reset_index()
+      )
       st.markdown("##### 🗓️ Tonnellaggio Settimanale per Giocatore (kg)")
       chart_lw = (
           alt.Chart(load_weekly)
@@ -853,11 +906,13 @@ elif st.session_state.page == "dataload":
           .properties(height=380)
       )
       st.altair_chart(chart_lw, use_container_width=True)
+    else:
+      st.info("ℹ️ Nessun dato di tonnellaggio settimanale disponibile.")
 
   with tab3:
-    if not df_f.empty:
+    if not df_load.empty:
       comp_load = (
-          df_f.groupby(["ATHLETE", "ROLE"])
+          df_load.groupby(["ATHLETE", "ROLE"])
           .agg(
               TOT_TONN=("TOTAL_LOAD", "sum"),
               MAX_TONN=("TOTAL_LOAD", "max"),
@@ -891,6 +946,3 @@ elif st.session_state.page == "dataload":
             .properties(height=350),
             use_container_width=True,
         )
-
-  with st.expander("📋 Tabella Dati Completi Pesi"):
-    st.dataframe(df_f, use_container_width=True)
