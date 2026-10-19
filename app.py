@@ -117,19 +117,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 3. Gestione della Navigazione e dei Parametri URL
+# 3. Inizializzazione Sessione e Gestione Parametri URL
 if "page" not in st.session_state:
   st.session_state.page = "home"
 
-# Legge il parametro 'atleta' direttamente dall'URL (es. ?atleta=Nathan Feral)
+# Lettura robusta del parametro dall'URL
 query_params = st.query_params
 url_athlete = query_params.get("atleta", None)
 
+if isinstance(url_athlete, list):
+  url_athlete = url_athlete[0] if url_athlete else None
+
 if url_athlete:
-  # Se il link specifica un atleta, limitiamo la vista a quell'atleta
   allowed_athletes = [url_athlete]
 else:
-  # Altrimenti visualizzazione completa
   allowed_athletes = "ALL"
 
 ruoli_dict = {
@@ -478,7 +479,6 @@ elif st.session_state.page == "datajump":
   if selected_sessions:
     df_f = df_f[df_f["DATE_STR"].isin(selected_sessions)]
 
-  # Player Card se selezionato un singolo giocatore o se filtrato da URL
   single_player_target = (
       selected_players[0]
       if selected_players and len(selected_players) == 1
