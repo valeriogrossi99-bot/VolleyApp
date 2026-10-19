@@ -30,6 +30,18 @@ ruoli_dict = {
     "Nicoló Volpe": "Centrale",
 }
 
+# Anchor date per il calcolo personalizzato delle settimane:
+# 2026-10-05 è il lunedì di Settimana 7
+ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
+
+
+def get_custom_week(dt_series):
+  """Calcola la 'Settimana X' prendendo come riferimento il 05/10/26 = Settimana 7."""
+  days_diff = (dt_series - ANCHOR_MONDAY).dt.days
+  week_offset = days_diff // 7
+  custom_week_num = 7 + week_offset
+  return "Settimana " + custom_week_num.astype(str)
+
 
 # --- CARICAMENTO AUTOMATICO DI TUTTI I FILE CSV ---
 @st.cache_data
@@ -62,16 +74,12 @@ def load_all_sessions():
   )
   df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
 
-  # Gestione date e settimane ISO
+  # Conversione Data e Settimana Personalizzata
   df["DATE_DT"] = pd.to_datetime(df["DATE"], errors="coerce")
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
 
-  iso_cal = df["DATE_DT"].dt.isocalendar()
-  df["WEEK"] = (
-      iso_cal["year"].astype(str)
-      + "-W"
-      + iso_cal["week"].astype(str).str.zfill(2)
-  )
+  # Calcolo automatico della settimana di lavoro (es. Settimana 7, Settimana 8, ...)
+  df["WEEK"] = get_custom_week(df["DATE_DT"])
 
   return df
 
@@ -112,10 +120,22 @@ else:
 st.sidebar.divider()
 st.sidebar.header("📅 Filtro Temporale")
 
-settimane_list = ["Tutte le settimane"] + sorted(
-    [w for w in df_filtered["WEEK"].unique() if pd.notna(w)], reverse=True
+
+# Ordinamento naturale per le settimane custom (es. Settimana 1, Settimana 2, ...)
+def extract_week_num(w_str):
+  try:
+    return int(w_str.replace("Settimana ", ""))
+  except Exception:
+    return 0
+
+
+unique_weeks = sorted(
+    [w for w in df_filtered["WEEK"].unique() if pd.notna(w)],
+    key=extract_week_num,
+    reverse=True,
 )
-selected_week = st.sidebar.selectbox("Settimana ISO", settimane_list)
+settimane_list = ["Tutte le settimane"] + unique_weeks
+selected_week = st.sidebar.selectbox("Settimana di Lavoro", settimane_list)
 
 if selected_week != "Tutte le settimane":
   df_filtered = df_filtered[df_filtered["WEEK"] == selected_week]
@@ -158,7 +178,7 @@ st.subheader(
     f" {selected_role}"
 )
 
-# SEZIONE GIORNALIERA (SESSIONE)
+# SEZIONE GIORNALIERA
 st.markdown("### 📅 Dati Giornalieri (Ultima Sessione Selezionata)")
 col1, col2, col3 = st.columns(3)
 
@@ -212,7 +232,7 @@ st.divider()
 st.subheader("📈 Grafici di Andamento Temporale")
 
 tab_giornaliero, tab_settimanale = st.tabs(
-    ["📊 Andamento Giornaliero per Data", "🗓️ Andamento Settimanale per Settimana"]
+    ["📊 Andamento Giornaliero per Data", "🗓️ Andamento Settimanale di Lavoro"]
 )
 
 with tab_giornaliero:
@@ -244,3 +264,34 @@ with tab_giornaliero:
 
 with tab_settimanale:
   col_w1, col_w2, col_w3 = st.columns(3)
+
+  with col_w1:
+    st.write("**Numero di Salti Settimanali**")
+    if not weekly_summary.empty:
+      chart_salti_w = weekly_summary.pivot_table(
+          index="WEEK", values="SALTI_SETTIMANA", aggfunc="sum"
+      )
+      st.bar_chart(chart_salti_w)
+
+  with col_w2:
+    st.write("**Salto Max Settimanale (cm)**")
+    if not weekly_summary.empty:
+      chart_max_w = weekly_summary.pivot_table(
+          index="WEEK", values="MAX_SETTIMANA", aggfunc="max"
+      )
+      st.line_chart(chart_max_w)
+
+  with col_w3:
+    st.write("**Media Salti Settimanale (cm)**")
+    if not weekly_summary.empty:
+      chart_med_w = weekly_summary.pivot_table(
+          index="WEEK", values="MEDIA_SETTIMANA", aggfunc="mean"
+      )
+      st.line_chart(chart_med_w)
+
+# --- TABELLE DETTAGLIATE ---
+with st.expander("📋 Tabella Dati Completi (Giornaliero e Settimanale)"):
+  st.write("**Riepilogo Giornaliero**")
+  st.dataframe(daily_summary)
+  st.write("**Riepilogo Settimanale**")
+  st.dataframe(weekly_summary)
