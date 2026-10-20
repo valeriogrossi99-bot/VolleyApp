@@ -1,7 +1,14 @@
+import base64
 import glob
+import html as html_lib
+import io
 import os
+import re
+import unicodedata
+from urllib.parse import quote, urljoin
 import altair as alt
 import pandas as pd
+import requests
 import streamlit as st
 
 # 1. Configurazione della Pagina
@@ -256,6 +263,177 @@ BAND_ORDER = [
     "JUMPS 60-70",
     "JUMPS > 70",
 ]
+
+
+# ------------------------------------------------------------------------------
+# Foto e scheda Lega Pallavolo Serie A dei giocatori
+# ------------------------------------------------------------------------------
+LEGA_BASE = "https://www.legavolley.it"
+# ID della squadra sul sito Lega (Acqua Sant'Anna Cuneo, SuperLega 2026/27).
+# Cambia a ogni stagione: se le foto Lega non compaiono più, aggiornalo.
+LEGA_TEAM_ID = 6863
+CUNEO_ROSTER_URL = "https://cuneovolley.it/prima-squadra/giocatori"
+# Ordine delle fonti per la foto: prima il sito Cuneo Volley, poi la Lega.
+# Per invertire: ["lega", "cuneo"]
+PHOTO_SOURCE_ORDER = ["cuneo", "lega"]
+REQ_HEADERS = {"User-Agent": "Mozilla/5.0 (Cuneo Volley Performance Hub)"}
+
+# Codici giocatore del sito Lega (formato: 3 lettere cognome - 3 lettere nome
+# - anno di nascita). Servono solo come ripiego: se la pagina squadra della Lega
+# è leggibile, i codici reali vengono presi da lì in automatico.
+LEGA_PLAYER_IDS = {
+    "Bryan Argilagos": "ARG-BRY-07",
+    "Manuel Coscione": "COS-MAN-80",
+    "Alexandre Strehlau": "STR-ALE-04",
+    "Ethan Champlin": "CHA-ETH-01",
+    "Federico Giraudo": "GIR-FED-07",
+    "Poriya Khanzadeh": "KHA-POR-04",
+    "Nathan Feral": "FER-NAT-03",
+    "Lorenzo Sala": "SAL-LOR-02",
+    "Emanuele Barberio": "BAR-EMA-07",
+    "Leandro Mosca": "MOS-LEA-00",
+    "Lorenzo Codarin": "COD-LOR-96",
+    "Nicoló Volpe": "VOL-NIC-03",
+    "Mimmo Cavaccini": "CAV-DOM-87",
+    "Thibault Loubeyre": "LOU-THI-01",
+}
+
+
+def _ascii_lower(text):
+  text = unicodedata.normalize("NFKD", str(text))
+  return text.encode("ascii", "ignore").decode().lower()
+
+
+def _slug(text):
+  return re.sub(r"[^a-z]", "", _ascii_lower(text))
+
+
+def _tokens(text):
+  return {t for t in re.split(r"[^a-z]+", _ascii_lower(text)) if t}
+
+
+# cognome normalizzato -> nome completo usato nell'app
+SURNAME_TO_PLAYER = {_slug(n.split()[-1]): n for n in ruoli_dict}
+
+
+def _html_attr(tag, names):
+  for n in names:
+    m = re.search(
+        rf"(?<![\w-]){n}\s*=\s*[\"']([^\"']*)[\"']", tag, flags=re.I
+    )
+    if m and m.group(1).strip():
+      return html_lib.unescape(m.group(1).strip())
+  return None
+
+
+def _fetch_html(url, timeout=10):
+  try:
+    r = requests.get(url, headers=REQ_HEADERS, timeout=timeout)
+    if r.status_code == 200:
+      return r.text
+  except Exception:
+    pass
+  return ""
+
+
+def _download_image(url, max_bytes=6_000_000):
+  try:
+    r = requests.get(url, headers=REQ_HEADERS, timeout=12)
+    ctype = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    if (
+        r.status_code != 200
+        or not ctype.startswith("image/")
+        or not r.content
+        or len(r.content) > max_bytes
+    ):
+      return None
+    return r.content, ctype
+  except Exception:
+    return None
+
+
+def _to_data_uri(raw, ctype):
+  """Ridimensiona la foto (se possibile) e la incorpora come data URI."""
+  try:
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    img.thumbnail((500, 500))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    raw, ctype = buf.getvalue(), "image/jpeg"
+  except Exception:
+    pass
+  return f"data:{ctype};base64," + base64.b64encode(raw).decode()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_cuneo_site_photos():
+  """Foto dalla pagina 'I giocatori' del sito Cuneo Volley: {nome: url}."""
+  html = _fetch_html(CUNEO_ROSTER_URL)
+  photos = {}
+  for tag in re.findall(r"<img\b[^>]*>", html, flags=re.I):
+    src = _html_attr(tag, ["data-src", "data-lazy-src", "data-original", "src"])
+    if not src or "/storage/images/" not in src:
+      continue
+    text = " ".join(
+        filter(
+            None,
+            [
+                _html_attr(tag, ["alt"]),
+                _html_attr(tag, ["title"]),
+                src.rsplit("/", 1)[-1],
+            ],
+        )
+    )
+    toks = _tokens(text)
+    for surname, full in SURNAME_TO_PLAYER.items():
+      if surname in toks and full not in photos:
+        photos[full] = urljoin(CUNEO_ROSTER_URL, src)
+        break
+  return photos
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_lega_player_ids():
+  """Codici giocatore Lega: parte dal ripiego e usa quelli reali del sito."""
+  ids = dict(LEGA_PLAYER_IDS)
+  html = _fetch_html(f"{LEGA_BASE}/team/{LEGA_TEAM_ID}")
+  for m in re.finditer(
+      r"<a\b[^>]*href=[\"'][^\"']*?/player/([A-Za-z0-9\-]+)[^\"']*[\"'][^>]*>(.*?)</a>",
+      html,
+      flags=re.I | re.S,
+  ):
+    key = m.group(1).upper()
+    toks = _tokens(re.sub(r"<[^>]+>", " ", m.group(2)))
+    for surname, full in SURNAME_TO_PLAYER.items():
+      if surname in toks:
+        ids[full] = key
+        break
+  return ids
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_player_photo(full_name):
+  """Foto del giocatore come data URI (None se nessuna fonte è disponibile)."""
+  lega_ids = load_lega_player_ids()
+  candidates = {
+      "cuneo": load_cuneo_site_photos().get(full_name),
+      "lega": (
+          f"{LEGA_BASE}/Foto.aspx?Key={lega_ids[full_name]}"
+          f"&sqid={LEGA_TEAM_ID}&heightImg=400"
+          if full_name in lega_ids
+          else None
+      ),
+  }
+  for source in PHOTO_SOURCE_ORDER:
+    url = candidates.get(source)
+    if not url:
+      continue
+    got = _download_image(url)
+    if got:
+      return _to_data_uri(*got)
+  return None
 
 
 def get_custom_week(dt_series):
@@ -587,19 +765,44 @@ elif st.session_state.page == "datajump":
     role_val = ruoli_dict.get(p, "Atleta")
     details = player_info.get(p, {})
     bio_val = details.get("bio", "Cuneo Volley Prima Squadra")
-    link_val = details.get("url", "https://cuneovolley.it/prima-squadra/giocatori")
 
-    st.markdown(
-        f"""
-        <div class="player-card">
-            <div class="player-title">🛡️ {p}</div>
-            <div class="player-role">Ruolo: {role_val}</div>
-            <p style="color: #475569; margin-top: 8px; margin-bottom: 12px;">{bio_val}</p>
-            <a href="{link_val}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600;">🔗 Vai alla scheda ufficiale Cuneo Volley &rarr;</a>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # Link alla scheda del giocatore sul sito della Lega Volley
+    lega_key = load_lega_player_ids().get(p)
+    if lega_key:
+      link_val = f"{LEGA_BASE}/player/{lega_key}"
+    else:
+      link_val = (
+          f"{LEGA_BASE}/ricerca/?Search={quote(p.split()[-1])}"
+          "&TipoOgg=ATL&FindAll=0"
+      )
+
+    # Foto presa dal sito (si aggiorna da sola ogni 10 minuti)
+    photo_uri = get_player_photo(p)
+    if photo_uri:
+      photo_html = (
+          f'<img src="{photo_uri}" alt="{html_lib.escape(p)}" '
+          'style="width:130px;height:130px;object-fit:cover;'
+          "object-position:top;border-radius:50%;"
+          'border:3px solid #2563eb;flex-shrink:0;">'
+      )
+    else:
+      photo_html = '<div style="font-size:3.2rem;flex-shrink:0;">🛡️</div>'
+
+    card_html = (
+        '<div class="player-card" style="display:flex;align-items:center;'
+        'gap:24px;flex-wrap:wrap;">'
+        f"{photo_html}"
+        "<div>"
+        f'<div class="player-title">{html_lib.escape(p)}</div>'
+        f'<div class="player-role">Ruolo: {html_lib.escape(role_val)}</div>'
+        '<p style="color:#475569;margin-top:8px;margin-bottom:12px;">'
+        f"{html_lib.escape(bio_val)}</p>"
+        f'<a href="{link_val}" target="_blank" '
+        'style="color:#2563eb;text-decoration:none;font-weight:600;">'
+        "🔗 Vai alla scheda ufficiale su Lega Pallavolo Serie A &rarr;</a>"
+        "</div></div>"
     )
+    st.markdown(card_html, unsafe_allow_html=True)
 
   daily_summary = (
       df_f.groupby(["ATHLETE", "ROLE", "DATE_STR", "WEEK"])
