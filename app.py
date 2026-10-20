@@ -639,6 +639,125 @@ def load_google_sheet_force():
   return df
 
 
+# ------------------------------------------------------------------------------
+# Registro carichi: scheda "Carichi" del Google Sheet, una riga per ogni serie
+# Colonne: Data | Atleta | Esercizio | Peso | Reps | RIR (facoltativa) | Note
+# ------------------------------------------------------------------------------
+LOG_SHEET_NAME = "Carichi"
+LOG_COLUMN_ALIASES = {
+    "DATA": ["data", "date", "giorno"],
+    "ATLETA": ["atleta", "athlete", "giocatore", "nome"],
+    "ESERCIZIO": ["esercizio", "exercise"],
+    "PESO": [
+        "peso",
+        "kg",
+        "carico",
+        "peso kg",
+        "peso (kg)",
+        "weight",
+        "weight(kg)",
+        "load",
+    ],
+    "REPS": ["reps", "ripetizioni", "rip", "ripetizioni (reps)"],
+    "RIR": ["rir"],
+    "NOTE": ["note", "notes"],
+}
+
+
+def _to_float(val):
+  if pd.isna(val):
+    return float("nan")
+  s = re.sub(r"[^0-9.\-]", "", str(val).replace(",", "."))
+  if s in ("", "-", "."):
+    return float("nan")
+  try:
+    return float(s)
+  except Exception:
+    return float("nan")
+
+
+def _resolve_athlete(name):
+  """Riconosce l'atleta anche se scrivi solo il cognome o l'ordine è invertito."""
+  s = _slug(name)
+  if not s:
+    return ""
+  for surname, full in SURNAME_TO_PLAYER.items():
+    if s == surname or s.startswith(surname) or s.endswith(surname):
+      return full
+  return str(name).strip()
+
+
+@st.cache_data(ttl=60)
+def load_google_sheet_log():
+  sheet_id = "1ib2DrRfODly8HT_V8c2PRNdALYt1_vDCAbvtAK7U1aw"
+  url = (
+      f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq"
+      f"?tqx=out:csv&sheet={quote(LOG_SHEET_NAME)}"
+  )
+  try:
+    raw = pd.read_csv(url)
+  except Exception:
+    return pd.DataFrame()
+
+  rename = {}
+  for col in raw.columns:
+    key = str(col).strip().lower()
+    for canon, aliases in LOG_COLUMN_ALIASES.items():
+      if key in aliases and canon not in rename.values():
+        rename[col] = canon
+        break
+  raw = raw.rename(columns=rename)
+  if not {"DATA", "ATLETA", "ESERCIZIO", "PESO", "REPS"}.issubset(raw.columns):
+    return pd.DataFrame()
+
+  df = raw[
+      [
+          c
+          for c in ["DATA", "ATLETA", "ESERCIZIO", "PESO", "REPS", "RIR", "NOTE"]
+          if c in raw.columns
+      ]
+  ].copy()
+  if "RIR" not in df.columns:
+    df["RIR"] = float("nan")
+  if "NOTE" not in df.columns:
+    df["NOTE"] = ""
+  df["NOTE"] = df["NOTE"].fillna("").astype(str)
+
+  df["PESO"] = df["PESO"].apply(_to_float)
+  df["REPS"] = df["REPS"].apply(_to_float)
+  df["RIR"] = df["RIR"].apply(_to_float)
+  df["DATE_DT"] = pd.to_datetime(df["DATA"], errors="coerce", dayfirst=True)
+  df = df.dropna(subset=["DATE_DT", "PESO", "REPS", "ATLETA", "ESERCIZIO"])
+  df = df[(df["PESO"] > 0) & (df["REPS"] > 0)].copy()
+  if df.empty:
+    return pd.DataFrame()
+
+  df["DATE_DT"] = df["DATE_DT"].dt.normalize()
+  df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
+  df["ATHLETE"] = df["ATLETA"].apply(_resolve_athlete)
+
+  # Esercizi: "clean", "Clean" e "CLEAN " diventano lo stesso esercizio
+  ex_raw = (
+      df["ESERCIZIO"].astype(str).str.strip().str.replace(r"\s+", " ", regex=True)
+  )
+  ex_key = ex_raw.str.lower()
+  canon = ex_raw.groupby(ex_key).agg(lambda s: s.value_counts().index[0])
+  df["ESERCIZIO"] = ex_key.map(canon)
+  df = df[df["ESERCIZIO"].str.len() > 0]
+
+  # 1RM stimato (Epley) con RIR: Peso x (1 + (Reps + RIR) / 30)
+  reps_eff = df["REPS"] + df["RIR"].fillna(0).clip(lower=0)
+  e1rm = df["PESO"].where(reps_eff <= 1, df["PESO"] * (1 + reps_eff / 30))
+  df["E1RM"] = e1rm.where(reps_eff <= 10)  # oltre 10 reps la stima non è affidabile
+  df["TONNAGE"] = df["PESO"] * df["REPS"]
+  df["SERIE"] = (
+      df["PESO"].map(lambda v: f"{v:g}")
+      + " kg × "
+      + df["REPS"].map(lambda v: f"{v:g}")
+  )
+  return df.reset_index(drop=True)
+
+
 # Controllo automatico dei file: ogni 30 secondi verifica se i CSV sono
 # cambiati (nuovi file o file modificati) e, in caso, riesegue tutta l'app.
 @st.fragment(run_every=30)
@@ -1354,20 +1473,221 @@ elif st.session_state.page == "dataload":
 
   df_load = load_load_data(get_files_signature())
   df_force = load_google_sheet_force()
+  df_log = load_google_sheet_log()
 
   if allowed_athletes != "ALL":
     if not df_load.empty:
       df_load = df_load[df_load["ATHLETE"].isin(allowed_athletes)]
     if not df_force.empty:
       df_force = df_force[df_force["ATHLETE"].isin(allowed_athletes)]
+    if not df_log.empty:
+      df_log = df_log[df_log["ATHLETE"].isin(allowed_athletes)]
 
   st.sidebar.divider()
   st.sidebar.header("🔍 Filtri Selezione & Confronto")
 
-  tab_force_eval, tab1 = st.tabs([
+  tab_log, tab_force_eval, tab1 = st.tabs([
+      "📈 Carichi & Massimali (tutti gli esercizi)",
       "🏋️ Valutazione Forza & 1RM (Google Sheet)",
       "📊 Tonnellaggio & Volume Pesi",
   ])
+
+  with tab_log:
+    st.markdown("##### 📈 Carichi, Massimali & Andamento per Esercizio")
+
+    if df_log.empty:
+      st.info(
+          "ℹ️ Non trovo la scheda **Carichi** nel Google Sheet. Creala con le"
+          " colonne: Data | Atleta | Esercizio | Peso | Reps | RIR (facoltativa)"
+          " | Note (facoltativa), una riga per ogni serie. Esempio:"
+          " 2026-10-20 | Cognome | Clean | 120 | 4"
+      )
+    else:
+      st.caption(
+          "1RM stimato = Peso × (1 + (Reps + RIR) / 30), formula di Epley,"
+          " considerato attendibile fino a 10 ripetizioni."
+          " Esempio: 120 kg × 4 → circa 136 kg."
+      )
+
+      atleti_log = sorted(df_log["ATHLETE"].unique())
+      opzioni_atleti = ["Tutti gli atleti"] + atleti_log
+      col_s1, col_s2 = st.columns(2)
+      with col_s1:
+        sel_atleta = st.selectbox(
+            "Atleta",
+            opzioni_atleti,
+            index=1 if len(atleti_log) == 1 else 0,
+            key="log_atleta",
+        )
+      df_l = (
+          df_log
+          if sel_atleta == "Tutti gli atleti"
+          else df_log[df_log["ATHLETE"] == sel_atleta]
+      )
+      esercizi_log = sorted(df_l["ESERCIZIO"].unique())
+      with col_s2:
+        sel_es = st.selectbox("Esercizio", esercizi_log, key="log_esercizio")
+
+      # --- Massimali per esercizio -------------------------------------------
+      rows = []
+      for (atl, es), g in df_l.groupby(["ATHLETE", "ESERCIZIO"]):
+        g_e = g.dropna(subset=["E1RM"])
+        best_e = g_e.loc[g_e["E1RM"].idxmax()] if not g_e.empty else None
+        best_w = g.loc[g["PESO"].idxmax()]
+        last = g.sort_values("DATE_DT", kind="stable").iloc[-1]
+        rows.append({
+            "ATLETA": atl,
+            "ESERCIZIO": es,
+            "E1RM": round(float(best_e["E1RM"]), 1) if best_e is not None else None,
+            "SERIE_E1RM": best_e["SERIE"] if best_e is not None else "",
+            "DATA_E1RM": best_e["DATE_STR"] if best_e is not None else "",
+            "PESO_MAX": float(best_w["PESO"]),
+            "SERIE_PESO_MAX": best_w["SERIE"],
+            "ULTIMA_DATA": last["DATE_STR"],
+            "ULTIMA_SERIE": last["SERIE"],
+            "N_SERIE": int(len(g)),
+            "TONNAGE": float(round(g["TONNAGE"].sum())),
+        })
+      summ = pd.DataFrame(rows)
+
+      st.markdown("###### 🏆 Massimali per esercizio")
+      st.dataframe(
+          summ.sort_values(["ATLETA", "ESERCIZIO"]).rename(
+              columns={
+                  "ATLETA": "Atleta",
+                  "ESERCIZIO": "Esercizio",
+                  "E1RM": "1RM stimato (kg)",
+                  "SERIE_E1RM": "Serie del 1RM",
+                  "DATA_E1RM": "Data 1RM",
+                  "PESO_MAX": "Carico max (kg)",
+                  "SERIE_PESO_MAX": "Serie del carico max",
+                  "ULTIMA_DATA": "Ultima seduta",
+                  "ULTIMA_SERIE": "Ultima serie",
+                  "N_SERIE": "Serie totali",
+                  "TONNAGE": "Tonnellaggio (kg)",
+              }
+          ),
+          use_container_width=True,
+          hide_index=True,
+      )
+
+      if sel_atleta == "Tutti gli atleti":
+        bar_df = summ[summ["ESERCIZIO"] == sel_es].dropna(subset=["E1RM"])
+        bar_x, bar_title = "ATLETA", f"1RM stimato (kg) — {sel_es}"
+      else:
+        bar_df = summ.dropna(subset=["E1RM"])
+        bar_x, bar_title = "ESERCIZIO", f"1RM stimato (kg) — {sel_atleta}"
+      if not bar_df.empty:
+        st.write(f"**{bar_title}**")
+        st.altair_chart(
+            alt.Chart(bar_df)
+            .mark_bar(color="#2563eb")
+            .encode(
+                x=alt.X(f"{bar_x}:N", sort="-y", title=None),
+                y=alt.Y("E1RM:Q", title="1RM stimato (kg)"),
+                tooltip=[
+                    "ATLETA",
+                    "ESERCIZIO",
+                    alt.Tooltip("E1RM:Q", title="1RM stimato (kg)", format=".1f"),
+                    alt.Tooltip("SERIE_E1RM:N", title="Serie"),
+                    alt.Tooltip("DATA_E1RM:N", title="Data"),
+                ],
+            )
+            .properties(height=340),
+            use_container_width=True,
+        )
+
+      # --- Andamento nel tempo per esercizio ----------------------------------
+      st.markdown(f"###### 📈 Andamento — {sel_es}")
+      metriche = {
+          "1RM stimato (kg)": "E1RM",
+          "Carico massimo (kg)": "PESO_MAX",
+          "Tonnellaggio (kg)": "TONNAGE",
+      }
+      sel_metrica = st.radio(
+          "Mostra", list(metriche.keys()), horizontal=True, key="log_metrica"
+      )
+      metric_col = metriche[sel_metrica]
+
+      df_t = df_l[df_l["ESERCIZIO"] == sel_es]
+      daily_log = (
+          df_t.groupby(["ATHLETE", "DATE_STR"])
+          .agg(
+              E1RM=("E1RM", "max"),
+              PESO_MAX=("PESO", "max"),
+              TONNAGE=("TONNAGE", "sum"),
+          )
+          .reset_index()
+      )
+      top_idx = df_t.groupby(["ATHLETE", "DATE_STR"])["PESO"].idxmax()
+      top_sets = df_t.loc[top_idx, ["ATHLETE", "DATE_STR", "SERIE"]].rename(
+          columns={"SERIE": "SERIE_TOP"}
+      )
+      daily_log = daily_log.merge(top_sets, on=["ATHLETE", "DATE_STR"], how="left")
+      daily_log["DATA"] = pd.to_datetime(daily_log["DATE_STR"])
+      plot_log = daily_log.dropna(subset=[metric_col])
+
+      if plot_log.empty:
+        st.info("Nessun dato disponibile per questa misura.")
+      else:
+        chart_tr = (
+            alt.Chart(plot_log)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X(
+                    "DATA:T",
+                    title="Data seduta",
+                    axis=alt.Axis(format="%d/%m"),
+                ),
+                y=alt.Y(
+                    f"{metric_col}:Q",
+                    title=sel_metrica,
+                    scale=alt.Scale(zero=False),
+                ),
+                color=alt.Color("ATHLETE:N", title="Atleta"),
+                tooltip=[
+                    "ATHLETE",
+                    alt.Tooltip("DATE_STR:N", title="Data"),
+                    alt.Tooltip("SERIE_TOP:N", title="Serie col carico maggiore"),
+                    alt.Tooltip("E1RM:Q", title="1RM stimato (kg)", format=".1f"),
+                    alt.Tooltip("PESO_MAX:Q", title="Carico max (kg)"),
+                    alt.Tooltip("TONNAGE:Q", title="Tonnellaggio (kg)", format=".0f"),
+                ],
+            )
+            .properties(height=380)
+        )
+        st.altair_chart(chart_tr, use_container_width=True)
+
+      # --- Tutte le serie registrate (più recenti per prime) -------------------
+      with st.expander("📋 Tutte le serie registrate", expanded=False):
+        log_view = df_l.sort_values(
+            "DATE_DT", ascending=False, kind="stable"
+        )[
+            [
+                "DATE_STR",
+                "ATHLETE",
+                "ESERCIZIO",
+                "PESO",
+                "REPS",
+                "RIR",
+                "E1RM",
+                "TONNAGE",
+                "NOTE",
+            ]
+        ].copy()
+        log_view["E1RM"] = log_view["E1RM"].round(1)
+        log_view.columns = [
+            "Data",
+            "Atleta",
+            "Esercizio",
+            "Peso (kg)",
+            "Reps",
+            "RIR",
+            "1RM stimato (kg)",
+            "Tonnellaggio (kg)",
+            "Note",
+        ]
+        st.dataframe(log_view, use_container_width=True, hide_index=True)
 
   with tab_force_eval:
     st.markdown(
