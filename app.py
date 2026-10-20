@@ -940,7 +940,10 @@ elif st.session_state.page == "datajump":
               " orizzontale mostro quindi il numero progressivo del salto."
           )
 
-        date_disponibili = sorted(df_session_seq["DATE_STR"].unique())
+        # Dalla seduta più recente alla meno recente
+        date_disponibili = sorted(
+            df_session_seq["DATE_STR"].unique(), reverse=True
+        )
 
         if not date_disponibili:
           st.warning("Nessuna sessione trovata con i filtri attuali.")
