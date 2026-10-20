@@ -262,9 +262,34 @@ def extract_week_num(w_str):
     return 0
 
 
-@st.cache_data
-def load_jump_data():
-  files = glob.glob("data/*.csv") + glob.glob("*.csv")
+def get_csv_files():
+  files = (
+      glob.glob("data/*.csv")
+      + glob.glob("data/*.CSV")
+      + glob.glob("*.csv")
+      + glob.glob("*.CSV")
+  )
+  return sorted(set(files))
+
+
+def get_files_signature():
+  """Elenco dei CSV con data di modifica e dimensione.
+
+  Viene passato alle funzioni di caricamento: se aggiungi o modifichi un file
+  la firma cambia e la cache viene ricalcolata in automatico.
+  """
+  sig = []
+  for f in get_csv_files():
+    try:
+      sig.append((f, os.path.getmtime(f), os.path.getsize(f)))
+    except OSError:
+      pass
+  return tuple(sig)
+
+
+@st.cache_data(ttl=60)
+def load_jump_data(files_signature):
+  files = [s[0] for s in files_signature]
   df_list = []
   for f in files:
     try:
@@ -343,9 +368,9 @@ def load_jump_data():
   return df
 
 
-@st.cache_data
-def load_load_data():
-  files = glob.glob("data/*.csv") + glob.glob("*.csv")
+@st.cache_data(ttl=60)
+def load_load_data(files_signature):
+  files = [s[0] for s in files_signature]
   df_list = []
   for f in files:
     try:
@@ -477,10 +502,19 @@ elif st.session_state.page == "datajump":
   else:
     st.sidebar.success(f"🔓 Visualizzazione Dedicata: {allowed_athletes[0]}")
 
-  df_jump = load_jump_data()
+  if st.sidebar.button("🔄 Aggiorna dati", key="refresh_jump"):
+    st.cache_data.clear()
+    st.rerun()
+
+  df_jump = load_jump_data(get_files_signature())
   if df_jump.empty:
     st.warning("⚠️ Nessun file CSV relativo ai salti trovato.")
     st.stop()
+
+  st.sidebar.caption(
+      f"📁 {len(get_csv_files())} file CSV trovati · "
+      f"{df_jump['DATE_STR'].nunique()} sedute caricate"
+  )
 
   if allowed_athletes != "ALL":
     df_jump = df_jump[df_jump["ATHLETE"].isin(allowed_athletes)]
@@ -803,7 +837,11 @@ elif st.session_state.page == "dataload":
   else:
     st.sidebar.success(f"🔓 Visualizzazione Dedicata: {allowed_athletes[0]}")
 
-  df_load = load_load_data()
+  if st.sidebar.button("🔄 Aggiorna dati", key="refresh_load"):
+    st.cache_data.clear()
+    st.rerun()
+
+  df_load = load_load_data(get_files_signature())
   df_force = load_google_sheet_force()
 
   if allowed_athletes != "ALL":
