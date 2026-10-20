@@ -245,11 +245,14 @@ MATCH_DAYS = {
 
 ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
 
+# Nomi possibili della colonna con l'orario, se nei CSV è separata dalla data
+TIME_COLUMNS = {"TIME", "ORA", "ORARIO", "HOUR"}
+
 
 def get_custom_week(dt_series):
-  days_diff = (dt_series - ANCHOR_MONDAY).dt.days
+  days_diff = (dt_series.dt.normalize() - ANCHOR_MONDAY).dt.days
   week_offset = days_diff // 7
-  return "Settimana " + (7 + week_offset).astype(str)
+  return "Settimana " + (7 + week_offset).astype(int).astype(str)
 
 
 def extract_week_num(w_str):
@@ -266,6 +269,7 @@ def load_jump_data():
   for f in files:
     try:
       temp = pd.read_csv(f, sep=";")
+      temp.columns = temp.columns.str.strip()
       if "JUMP HEIGHT(cm)" in temp.columns:
         df_list.append(temp)
     except Exception:
@@ -274,13 +278,47 @@ def load_jump_data():
     return pd.DataFrame()
   df = pd.concat(df_list, ignore_index=True)
   df.columns = df.columns.str.strip()
+
+  # Altezza salto numerica (accetta anche la virgola come decimale)
+  df["JUMP HEIGHT(cm)"] = pd.to_numeric(
+      df["JUMP HEIGHT(cm)"].astype(str).str.replace(",", ".", regex=False),
+      errors="coerce",
+  )
+  df = df.dropna(subset=["JUMP HEIGHT(cm)"]).copy()
+
   df["ATHLETE"] = (
       df["NAME"].astype(str).str.strip()
       + " "
       + df["SURNAME"].astype(str).str.strip()
   )
   df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
+
+  # Data e orario
   df["DATE_DT"] = pd.to_datetime(df["DATE"], errors="coerce")
+  df = df.dropna(subset=["DATE_DT"]).copy()
+
+  time_col = next((c for c in df.columns if c.upper() in TIME_COLUMNS), None)
+  date_has_time = (
+      (df["DATE_DT"].dt.hour != 0)
+      | (df["DATE_DT"].dt.minute != 0)
+      | (df["DATE_DT"].dt.second != 0)
+  ).any()
+
+  df["DATETIME"] = df["DATE_DT"]
+  df["HAS_TIME"] = bool(date_has_time)
+
+  if not date_has_time and time_col is not None:
+    combined = pd.to_datetime(
+        df["DATE_DT"].dt.strftime("%Y-%m-%d")
+        + " "
+        + df[time_col].astype(str).str.strip(),
+        errors="coerce",
+    )
+    if combined.notna().any():
+      df["DATETIME"] = combined.fillna(df["DATE_DT"])
+      df["HAS_TIME"] = True
+
+  df["DATE_DT"] = df["DATE_DT"].dt.normalize()
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
   df["WEEK"] = get_custom_week(df["DATE_DT"])
   df["IS_MATCH"] = df["DATE_STR"].isin(MATCH_DAYS)
@@ -331,6 +369,7 @@ def load_load_data():
   df["ROLE"] = df["ATHLETE"].map(ruoli_dict).fillna("Altro")
   date_col = "DATE" if "DATE" in df.columns else "Data"
   df["DATE_DT"] = pd.to_datetime(df[date_col], errors="coerce")
+  df = df.dropna(subset=["DATE_DT"]).copy()
   df["DATE_STR"] = df["DATE_DT"].dt.strftime("%Y-%m-%d")
   df["WEEK"] = get_custom_week(df["DATE_DT"])
   if "TONNAGE" in df.columns:
@@ -590,14 +629,25 @@ elif st.session_state.page == "datajump":
         )
         st.info(
             "I grafici seguenti mostrano l'altezza dei singoli salti in ordine"
-            " cronologico per ciascuna seduta di allenamento dell'atleta."
+            " cronologico per ciascuna seduta di allenamento dell'atleta,"
+            " in base all'orario in cui sono stati eseguiti."
         )
 
         df_session_seq = df_f.copy()
-        df_session_seq = df_session_seq.sort_values(by=["DATE_DT"])
+        # Ordinamento stabile: a parità di orario si mantiene l'ordine del file
+        df_session_seq = df_session_seq.sort_values(
+            by=["DATETIME"], kind="stable"
+        )
         df_session_seq["NUM_SALTO"] = df_session_seq.groupby(
             ["DATE_STR", "ATHLETE"]
         ).cumcount() + 1
+
+        if not df_session_seq.empty and not df_session_seq["HAS_TIME"].any():
+          st.warning(
+              "Nei file CSV non trovo l'orario dei salti (né dentro la colonna"
+              " DATE né in una colonna TIME / ORA / ORARIO / HOUR): sull'asse"
+              " orizzontale mostro quindi il numero progressivo del salto."
+          )
 
         date_disponibili = sorted(df_session_seq["DATE_STR"].unique())
 
@@ -608,26 +658,47 @@ elif st.session_state.page == "datajump":
             df_data_sub = df_session_seq[
                 df_session_seq["DATE_STR"] == data_seduta
             ]
+            has_time = bool(df_data_sub["HAS_TIME"].any())
 
             st.markdown(f"**📅 Seduta del: {data_seduta}**")
+
+            if has_time:
+              x_enc = alt.X(
+                  "DATETIME:T",
+                  title="Orario del salto",
+                  axis=alt.Axis(format="%H:%M", labelAngle=0),
+              )
+              tooltip_enc = [
+                  "ATHLETE",
+                  alt.Tooltip(
+                      "DATETIME:T", title="Orario", format="%H:%M:%S"
+                  ),
+                  alt.Tooltip("NUM_SALTO:Q", title="N° salto"),
+                  "JUMP HEIGHT(cm)",
+                  "JUMP_BAND",
+              ]
+            else:
+              x_enc = alt.X(
+                  "NUM_SALTO:Q",
+                  title="Progressione Salti nella Seduta",
+              )
+              tooltip_enc = [
+                  "ATHLETE",
+                  "NUM_SALTO",
+                  "JUMP HEIGHT(cm)",
+                  "JUMP_BAND",
+              ]
 
             chart_intra = (
                 alt.Chart(df_data_sub)
                 .mark_line(point=True, strokeWidth=2, color="#2563eb")
                 .encode(
-                    x=alt.X(
-                        "NUM_SALTO:Q",
-                        title="Progressione Salti nella Seduta",
-                    ),
+                    x=x_enc,
                     y=alt.Y(
                         "JUMP HEIGHT(cm):Q", title="Altezza Salto (cm)"
                     ),
-                    tooltip=[
-                        "ATHLETE",
-                        "NUM_SALTO",
-                        "JUMP HEIGHT(cm)",
-                        "JUMP_BAND",
-                    ],
+                    order=alt.Order("NUM_SALTO:Q"),
+                    tooltip=tooltip_enc,
                 )
                 .properties(height=300, width="container")
             )
