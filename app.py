@@ -452,6 +452,21 @@ def load_google_sheet_force():
   return df
 
 
+# Controllo automatico dei file: ogni 30 secondi verifica se i CSV sono
+# cambiati (nuovi file o file modificati) e, in caso, riesegue tutta l'app.
+@st.fragment(run_every=30)
+def watch_data_folder():
+  current = get_files_signature()
+  if "files_sig" not in st.session_state:
+    st.session_state.files_sig = current
+  elif st.session_state.files_sig != current:
+    st.session_state.files_sig = current
+    st.rerun()
+
+
+watch_data_folder()
+
+
 # ==============================================================================
 # SCHERMATA 1: HOME PAGE
 # ==============================================================================
@@ -501,10 +516,6 @@ elif st.session_state.page == "datajump":
     st.sidebar.success("🔓 Visualizzazione: Roster Completo")
   else:
     st.sidebar.success(f"🔓 Visualizzazione Dedicata: {allowed_athletes[0]}")
-
-  if st.sidebar.button("🔄 Aggiorna dati", key="refresh_jump"):
-    st.cache_data.clear()
-    st.rerun()
 
   df_jump = load_jump_data(get_files_signature())
   if df_jump.empty:
@@ -836,10 +847,6 @@ elif st.session_state.page == "dataload":
     st.sidebar.success("🔓 Visualizzazione: Roster Completo")
   else:
     st.sidebar.success(f"🔓 Visualizzazione Dedicata: {allowed_athletes[0]}")
-
-  if st.sidebar.button("🔄 Aggiorna dati", key="refresh_load"):
-    st.cache_data.clear()
-    st.rerun()
 
   df_load = load_load_data(get_files_signature())
   df_force = load_google_sheet_force()
