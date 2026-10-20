@@ -248,6 +248,15 @@ ANCHOR_MONDAY = pd.to_datetime("2026-10-05")
 # Nomi possibili della colonna con l'orario, se nei CSV è separata dalla data
 TIME_COLUMNS = {"TIME", "ORA", "ORARIO", "HOUR"}
 
+GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
+BAND_ORDER = [
+    "JUMPS < 30",
+    "JUMPS 30-50",
+    "JUMPS 50-60",
+    "JUMPS 60-70",
+    "JUMPS > 70",
+]
+
 
 def get_custom_week(dt_series):
   days_diff = (dt_series.dt.normalize() - ANCHOR_MONDAY).dt.days
@@ -545,6 +554,10 @@ elif st.session_state.page == "datajump":
   if selected_players:
     df_f = df_f[df_f["ATHLETE"].isin(selected_players)]
 
+  # Base per il confronto tra settimane: filtri Ruolo e Giocatori applicati,
+  # filtri Settimane e Date Sedute esclusi
+  df_base = df_f.copy()
+
   unique_weeks = sorted(
       [w for w in df_f["WEEK"].unique() if pd.notna(w)],
       key=extract_week_num,
@@ -629,17 +642,21 @@ elif st.session_state.page == "datajump":
 
   st.divider()
 
-  tab1, tab2, tab3, tab4 = st.tabs([
+  tab1, tab2, tab3, tab4, tab5 = st.tabs([
       "📊 Andamento Giornaliero",
       "🗓️ Andamento Settimanale",
       "⚔️ Confronto Giocatori",
       "🎯 Distribuzione Fasce",
+      "🆚 Confronto Settimane",
   ])
 
   with tab1:
     if not daily_summary.empty:
       st.markdown("##### 🔵 Volume Salti per Data e Giocatore")
-      chart1 = (
+      match_dates = daily_summary[daily_summary["IS_MATCH"].astype(bool)][
+          ["DATE_STR"]
+      ].drop_duplicates()
+      bars1 = (
           alt.Chart(daily_summary)
           .mark_bar()
           .encode(
@@ -648,12 +665,25 @@ elif st.session_state.page == "datajump":
               color=alt.Color("ATHLETE:N", title="Giocatore"),
               tooltip=["DATE_STR", "ATHLETE", "SALTI_GIORNO", "MAX_GIORNO"],
           )
-          .properties(height=380)
       )
+      if match_dates.empty:
+        chart1 = bars1.properties(height=380)
+      else:
+        match_bg = (
+            alt.Chart(match_dates)
+            .mark_rect(color="#f97316", opacity=0.2)
+            .encode(
+                x=alt.X("DATE_STR:N", title="Data Seduta"),
+                y=alt.value(0),
+                y2=alt.value(380),
+            )
+        )
+        chart1 = alt.layer(match_bg, bars1).properties(height=380)
       st.altair_chart(chart1, use_container_width=True)
+      st.caption("🟠 Colonna / pallino arancione = giorno di partita")
 
       st.markdown("##### 🚀 Salto Max (cm)")
-      chart2 = (
+      line2 = (
           alt.Chart(daily_summary)
           .mark_line(point=True)
           .encode(
@@ -662,8 +692,21 @@ elif st.session_state.page == "datajump":
               color=alt.Color("ATHLETE:N", title="Giocatore"),
               tooltip=["DATE_STR", "ATHLETE", "MAX_GIORNO"],
           )
-          .properties(height=380)
       )
+      match_pts = daily_summary[daily_summary["IS_MATCH"].astype(bool)]
+      if match_pts.empty:
+        chart2 = line2.properties(height=380)
+      else:
+        match_dots = (
+            alt.Chart(match_pts)
+            .mark_point(filled=True, color="#f97316", size=260)
+            .encode(
+                x=alt.X("DATE_STR:N", title="Data Seduta"),
+                y=alt.Y("MAX_GIORNO:Q", title="Salto Max (cm)"),
+                tooltip=["DATE_STR", "ATHLETE", "MAX_GIORNO"],
+            )
+        )
+        chart2 = alt.layer(line2, match_dots).properties(height=380)
       st.altair_chart(chart2, use_container_width=True)
 
       if single_player_target:
@@ -705,7 +748,11 @@ elif st.session_state.page == "datajump":
             ]
             has_time = bool(df_data_sub["HAS_TIME"].any())
 
-            st.markdown(f"**📅 Seduta del: {data_seduta}**")
+            is_match_day = data_seduta in MATCH_DAYS
+            st.markdown(
+                f"**📅 Seduta del: {data_seduta}**"
+                + (" &nbsp; 🟠 **Match day**" if is_match_day else "")
+            )
 
             if has_time:
               x_enc = alt.X(
@@ -736,7 +783,11 @@ elif st.session_state.page == "datajump":
 
             chart_intra = (
                 alt.Chart(df_data_sub)
-                .mark_line(point=True, strokeWidth=2, color="#2563eb")
+                .mark_line(
+                    point=True,
+                    strokeWidth=2,
+                    color="#f97316" if is_match_day else "#2563eb",
+                )
                 .encode(
                     x=x_enc,
                     y=alt.Y(
@@ -830,6 +881,253 @@ elif st.session_state.page == "datajump":
           .properties(height=400)
       )
       st.altair_chart(chart_b, use_container_width=True)
+
+  with tab5:
+    st.markdown("##### 🆚 Confronto tra due settimane di lavoro")
+    st.caption(
+        "Usa i filtri Ruolo e Giocatori della barra laterale; ignora i filtri"
+        " Settimane e Date Sedute, così puoi scegliere qui le due settimane."
+    )
+    settimane_cmp = sorted(
+        [w for w in df_base["WEEK"].unique() if pd.notna(w)],
+        key=extract_week_num,
+        reverse=True,
+    )
+    if len(settimane_cmp) < 2:
+      st.info("Servono dati di almeno due settimane per fare il confronto.")
+    else:
+      col_wa, col_wb = st.columns(2)
+      with col_wa:
+        week_a = st.selectbox(
+            "Settimana A (riferimento)",
+            settimane_cmp,
+            index=1,
+            key="cmp_week_a",
+        )
+      with col_wb:
+        week_b = st.selectbox(
+            "Settimana B (da confrontare)",
+            settimane_cmp,
+            index=0,
+            key="cmp_week_b",
+        )
+
+      if week_a == week_b:
+        st.warning("Scegli due settimane diverse per il confronto.")
+      else:
+        df_a = df_base[df_base["WEEK"] == week_a]
+        df_b = df_base[df_base["WEEK"] == week_b]
+
+        def week_stats(d):
+          if d.empty:
+            return {"salti": 0, "max": 0.0, "media": 0.0, "sedute": 0}
+          h = d["JUMP HEIGHT(cm)"]
+          return {
+              "salti": int(h.count()),
+              "max": float(h.max()),
+              "media": float(h.mean()),
+              "sedute": int(d["DATE_STR"].nunique()),
+          }
+
+        sa, sb = week_stats(df_a), week_stats(df_b)
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(
+            f"Totale Salti — {week_b}",
+            f"{sb['salti']}",
+            f"{sb['salti'] - sa['salti']:+d} vs {week_a}",
+        )
+        m2.metric(
+            f"Salto Max — {week_b}",
+            f"{sb['max']:.1f} cm",
+            f"{sb['max'] - sa['max']:+.1f} cm",
+        )
+        m3.metric(
+            f"Media Salti — {week_b}",
+            f"{sb['media']:.1f} cm",
+            f"{sb['media'] - sa['media']:+.1f} cm",
+        )
+        m4.metric(
+            f"Sedute — {week_b}",
+            f"{sb['sedute']}",
+            f"{sb['sedute'] - sa['sedute']:+d}",
+        )
+        st.caption(
+            f"{week_a}: {sa['salti']} salti · max {sa['max']:.1f} cm · media"
+            f" {sa['media']:.1f} cm · {sa['sedute']} sedute"
+        )
+
+        cmp_df = pd.concat(
+            [df_a.assign(SETTIMANA=week_a), df_b.assign(SETTIMANA=week_b)],
+            ignore_index=True,
+        )
+        cmp_df["GIORNO"] = cmp_df["DATE_DT"].dt.dayofweek.map(
+            lambda i: GIORNI[int(i)]
+        )
+        cmp_daily = (
+            cmp_df.groupby(["SETTIMANA", "GIORNO", "DATE_STR"])
+            .agg(
+                SALTI=("JUMP HEIGHT(cm)", "count"),
+                SALTO_MAX=("JUMP HEIGHT(cm)", "max"),
+                SALTO_MEDIO=("JUMP HEIGHT(cm)", "mean"),
+                IS_MATCH=("IS_MATCH", "max"),
+            )
+            .reset_index()
+        )
+        cmp_daily["IS_MATCH"] = cmp_daily["IS_MATCH"].astype(bool)
+
+        week_color = alt.Color(
+            "SETTIMANA:N",
+            title="Settimana",
+            scale=alt.Scale(
+                domain=[week_a, week_b], range=["#94a3b8", "#2563eb"]
+            ),
+        )
+
+        def cmp_bar(value_col, title):
+          bars = (
+              alt.Chart(cmp_daily)
+              .mark_bar()
+              .encode(
+                  x=alt.X("GIORNO:N", sort=GIORNI, title="Giorno"),
+                  xOffset=alt.XOffset("SETTIMANA:N"),
+                  y=alt.Y(f"{value_col}:Q", title=title),
+                  color=week_color,
+                  tooltip=[
+                      "SETTIMANA",
+                      "GIORNO",
+                      "DATE_STR",
+                      alt.Tooltip("SALTI:Q", title="Salti"),
+                      alt.Tooltip(
+                          "SALTO_MAX:Q", title="Max (cm)", format=".1f"
+                      ),
+                      alt.Tooltip(
+                          "SALTO_MEDIO:Q", title="Media (cm)", format=".1f"
+                      ),
+                  ],
+              )
+          )
+          match_df = cmp_daily[cmp_daily["IS_MATCH"]]
+          if match_df.empty:
+            return bars.properties(height=340)
+          dots = (
+              alt.Chart(match_df)
+              .mark_point(filled=True, color="#f97316", size=150)
+              .encode(
+                  x=alt.X("GIORNO:N", sort=GIORNI),
+                  xOffset=alt.XOffset("SETTIMANA:N"),
+                  y=f"{value_col}:Q",
+              )
+          )
+          return alt.layer(bars, dots).properties(height=340)
+
+        cc1, cc2 = st.columns(2)
+        with cc1:
+          st.write("**Volume Salti per Giorno**")
+          st.altair_chart(
+              cmp_bar("SALTI", "Nr. Salti"), use_container_width=True
+          )
+        with cc2:
+          st.write("**Salto Max (cm) per Giorno**")
+          st.altair_chart(
+              cmp_bar("SALTO_MAX", "Salto Max (cm)"),
+              use_container_width=True,
+          )
+        st.caption("🟠 Pallino arancione = giorno di partita")
+
+        band_cmp = (
+            cmp_df.groupby(["SETTIMANA", "JUMP_BAND"])
+            .size()
+            .reset_index(name="N")
+        )
+        band_cmp["PERC"] = (
+            band_cmp["N"]
+            / band_cmp.groupby("SETTIMANA")["N"].transform("sum")
+            * 100
+        )
+        st.write("**Distribuzione Fasce (% sui salti della settimana)**")
+        chart_band_cmp = (
+            alt.Chart(band_cmp)
+            .mark_bar()
+            .encode(
+                x=alt.X("JUMP_BAND:N", sort=BAND_ORDER, title="Fascia"),
+                xOffset=alt.XOffset("SETTIMANA:N"),
+                y=alt.Y("PERC:Q", title="% dei salti"),
+                color=week_color,
+                tooltip=[
+                    "SETTIMANA",
+                    "JUMP_BAND",
+                    alt.Tooltip("N:Q", title="Nr. salti"),
+                    alt.Tooltip("PERC:Q", title="%", format=".1f"),
+                ],
+            )
+            .properties(height=340)
+        )
+        st.altair_chart(chart_band_cmp, use_container_width=True)
+
+        st.write("**Dettaglio per Giorno**")
+        detail = cmp_daily.copy()
+        detail["PARTITA"] = detail["IS_MATCH"].map(
+            {True: "🟠 Match day", False: ""}
+        )
+        detail["SALTO_MAX"] = detail["SALTO_MAX"].round(1)
+        detail["SALTO_MEDIO"] = detail["SALTO_MEDIO"].round(1)
+        detail["_g"] = detail["GIORNO"].map(
+            {g: i for i, g in enumerate(GIORNI)}
+        )
+        detail["_w"] = detail["SETTIMANA"].map({week_a: 0, week_b: 1})
+        detail = detail.sort_values(["_g", "_w"]).drop(
+            columns=["_g", "_w", "IS_MATCH"]
+        )
+        st.dataframe(
+            detail.rename(
+                columns={
+                    "SETTIMANA": "Settimana",
+                    "GIORNO": "Giorno",
+                    "DATE_STR": "Data",
+                    "SALTI": "Salti",
+                    "SALTO_MAX": "Salto max (cm)",
+                    "SALTO_MEDIO": "Media (cm)",
+                    "PARTITA": "Partita",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        if cmp_df["ATHLETE"].nunique() > 1:
+          st.write("**Confronto per Giocatore**")
+          by_player = (
+              cmp_df.groupby(["ATHLETE", "SETTIMANA"])
+              .agg(
+                  SALTI=("JUMP HEIGHT(cm)", "count"),
+                  MAX=("JUMP HEIGHT(cm)", "max"),
+                  MEDIA=("JUMP HEIGHT(cm)", "mean"),
+              )
+              .reset_index()
+          )
+          wide = by_player.pivot(
+              index="ATHLETE",
+              columns="SETTIMANA",
+              values=["SALTI", "MAX", "MEDIA"],
+          )
+          salti_a = wide[("SALTI", week_a)].fillna(0).astype(int)
+          salti_b = wide[("SALTI", week_b)].fillna(0).astype(int)
+          player_table = pd.DataFrame({
+              f"Salti {week_a}": salti_a,
+              f"Salti {week_b}": salti_b,
+              "Δ Salti": salti_b - salti_a,
+              f"Media {week_a} (cm)": wide[("MEDIA", week_a)].round(1),
+              f"Media {week_b} (cm)": wide[("MEDIA", week_b)].round(1),
+              "Δ Media (cm)": (
+                  wide[("MEDIA", week_b)] - wide[("MEDIA", week_a)]
+              ).round(1),
+              f"Max {week_a} (cm)": wide[("MAX", week_a)].round(1),
+              f"Max {week_b} (cm)": wide[("MAX", week_b)].round(1),
+          }).reset_index()
+          st.dataframe(
+              player_table, use_container_width=True, hide_index=True
+          )
 
 # ==============================================================================
 # SCHERMATA 3: MODULO DATALOAD
