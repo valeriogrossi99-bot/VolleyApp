@@ -758,6 +758,56 @@ def load_google_sheet_log():
   return df.reset_index(drop=True)
 
 
+@st.cache_data(ttl=60)
+def diagnose_log_sheet():
+  """Spiega perché la scheda Carichi non risulta leggibile."""
+  sheet_id = "1ib2DrRfODly8HT_V8c2PRNdALYt1_vDCAbvtAK7U1aw"
+  url = (
+      f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq"
+      f"?tqx=out:csv&sheet={quote(LOG_SHEET_NAME)}"
+  )
+  try:
+    r = requests.get(url, headers=REQ_HEADERS, timeout=10)
+  except Exception as e:
+    return f"Non riesco a collegarmi a Google ({type(e).__name__})."
+  if r.status_code != 200 or r.text.lstrip().lower().startswith("<"):
+    return (
+        f"Google non restituisce i dati (codice {r.status_code}). Controlla che"
+        " il foglio sia condiviso come «Chiunque abbia il link: Visualizzatore»."
+    )
+  try:
+    raw = pd.read_csv(io.StringIO(r.text))
+  except Exception as e:
+    return f"Il foglio risponde ma non riesco a leggerlo ({type(e).__name__})."
+
+  found = {}
+  for col in raw.columns:
+    key = str(col).strip().lower()
+    for canon, aliases in LOG_COLUMN_ALIASES.items():
+      if key in aliases and canon not in found.values():
+        found[col] = canon
+        break
+  missing = [
+      c
+      for c in ["DATA", "ATLETA", "ESERCIZIO", "PESO", "REPS"]
+      if c not in found.values()
+  ]
+  cols = ", ".join(str(c) for c in raw.columns) or "(nessuna)"
+  if missing:
+    return (
+        f"Il foglio risponde con {len(raw)} righe e queste colonne: {cols}."
+        f" Mancano: {', '.join(missing)}. Se queste colonne non sono quelle di"
+        " Carichi, la scheda «Carichi» non esiste in questo foglio (Google"
+        " mostra la prima scheda al suo posto) oppure le intestazioni non sono"
+        " nella riga 1."
+    )
+  return (
+      f"Le colonne sono corrette ({len(raw)} righe), ma nessuna riga è valida:"
+      " controlla che Data sia una data (es. 2026-10-20) e che Peso e Reps"
+      " siano numeri maggiori di 0."
+  )
+
+
 # Controllo automatico dei file: ogni 30 secondi verifica se i CSV sono
 # cambiati (nuovi file o file modificati) e, in caso, riesegue tutta l'app.
 @st.fragment(run_every=30)
@@ -1502,6 +1552,7 @@ elif st.session_state.page == "dataload":
           " | Note (facoltativa), una riga per ogni serie. Esempio:"
           " 2026-10-20 | Cognome | Clean | 120 | 4"
       )
+      st.caption(f"🔎 Diagnosi: {diagnose_log_sheet()}")
     else:
       st.caption(
           "1RM stimato = Peso × (1 + (Reps + RIR) / 30), formula di Epley,"
