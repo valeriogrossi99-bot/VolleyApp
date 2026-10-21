@@ -814,7 +814,7 @@ def is_admin():
     given = given[0] if given else None
   if not token or not given:
     return False
-  return hmac.compare_digest(str(token), str(given))
+  return hmac.compare_digest(str(token).strip(), str(given).strip())
 
 
 def epley_1rm(kg, reps, rir=0):
@@ -1658,9 +1658,17 @@ elif st.session_state.page == "dataload":
   if admin_mode:
     st.sidebar.success("✍️ Modalità modifica attiva")
   elif st.query_params.get("admin"):
-    st.sidebar.warning(
-        "Modalità modifica non attiva: chiave non valida o non configurata."
-    )
+    if _secret("admin_token") is None:
+      st.sidebar.warning(
+          "Modalità modifica non attiva: nei secrets dell'app non trovo"
+          " `admin_token` (secrets non salvati, app non riavviata, oppure"
+          " errore di scrittura nel file dei secrets)."
+      )
+    else:
+      st.sidebar.warning(
+          "Modalità modifica non attiva: la chiave nel link non coincide con"
+          " `admin_token` dei secrets."
+      )
 
   if admin_mode:
     tab_edit, tab_log, tab_force_eval, tab1 = st.tabs([
