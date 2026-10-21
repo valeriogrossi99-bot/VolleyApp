@@ -1,10 +1,12 @@
 import base64
 import glob
+import hmac
 import html as html_lib
 import io
 import os
 import re
 import unicodedata
+from datetime import date
 from urllib.parse import quote, urljoin
 import altair as alt
 import pandas as pd
@@ -643,7 +645,22 @@ def load_google_sheet_force():
 # Registro carichi: scheda "Carichi" del Google Sheet, una riga per ogni serie
 # Colonne: Data | Atleta | Esercizio | Peso | Reps | RIR (facoltativa) | Note
 # ------------------------------------------------------------------------------
+SHEET_ID = "1ib2DrRfODly8HT_V8c2PRNdALYt1_vDCAbvtAK7U1aw"
 LOG_SHEET_NAME = "Carichi"
+LOG_HEADERS_BY_KEY = {
+    "DATA": "Data",
+    "ATLETA": "Atleta",
+    "ESERCIZIO": "Esercizio",
+    "PESO": "Peso",
+    "REPS": "Reps",
+    "RIR": "RIR",
+    "BW": "BW",
+    "TARGET": "Target",
+    "NOTE": "Note",
+}
+LOG_HEADERS = list(LOG_HEADERS_BY_KEY.values())
+# Esercizi sempre proposti nel menu (oltre a quelli già registrati)
+ESERCIZI_BASE = ["Back Squat", "Front Squat", "Stacco QB", "Clean"]
 LOG_COLUMN_ALIASES = {
     "DATA": ["data", "date", "giorno"],
     "ATLETA": ["atleta", "athlete", "giocatore", "nome"],
@@ -660,6 +677,14 @@ LOG_COLUMN_ALIASES = {
     ],
     "REPS": ["reps", "ripetizioni", "rip", "ripetizioni (reps)"],
     "RIR": ["rir"],
+    "BW": ["bw", "peso corporeo", "body weight", "bodyweight", "pc"],
+    "TARGET": [
+        "target",
+        "target xbw",
+        "target x bw",
+        "target (xbw)",
+        "target forza relativa",
+    ],
     "NOTE": ["note", "notes"],
 }
 
@@ -713,12 +738,23 @@ def load_google_sheet_log():
   df = raw[
       [
           c
-          for c in ["DATA", "ATLETA", "ESERCIZIO", "PESO", "REPS", "RIR", "NOTE"]
+          for c in [
+              "DATA",
+              "ATLETA",
+              "ESERCIZIO",
+              "PESO",
+              "REPS",
+              "RIR",
+              "BW",
+              "TARGET",
+              "NOTE",
+          ]
           if c in raw.columns
       ]
   ].copy()
-  if "RIR" not in df.columns:
-    df["RIR"] = float("nan")
+  for opt in ["RIR", "BW", "TARGET"]:
+    if opt not in df.columns:
+      df[opt] = float("nan")
   if "NOTE" not in df.columns:
     df["NOTE"] = ""
   df["NOTE"] = df["NOTE"].fillna("").astype(str)
@@ -726,7 +762,11 @@ def load_google_sheet_log():
   df["PESO"] = df["PESO"].apply(_to_float)
   df["REPS"] = df["REPS"].apply(_to_float)
   df["RIR"] = df["RIR"].apply(_to_float)
-  df["DATE_DT"] = pd.to_datetime(df["DATA"], errors="coerce", dayfirst=True)
+  df["BW"] = df["BW"].apply(_to_float)
+  df["BW"] = df["BW"].where(df["BW"] > 0)
+  df["TARGET"] = df["TARGET"].apply(_to_float)
+  df["TARGET"] = df["TARGET"].where(df["TARGET"] > 0)
+  df["DATE_DT"] = parse_dates(df["DATA"])
   df = df.dropna(subset=["DATE_DT", "PESO", "REPS", "ATLETA", "ESERCIZIO"])
   df = df[(df["PESO"] > 0) & (df["REPS"] > 0)].copy()
   if df.empty:
@@ -742,6 +782,7 @@ def load_google_sheet_log():
   )
   ex_key = ex_raw.str.lower()
   canon = ex_raw.groupby(ex_key).agg(lambda s: s.value_counts().index[0])
+  canon = canon.map(lambda s: s[:1].upper() + s[1:] if s.islower() else s)
   df["ESERCIZIO"] = ex_key.map(canon)
   df = df[df["ESERCIZIO"].str.len() > 0]
 
@@ -756,6 +797,83 @@ def load_google_sheet_log():
       + df["REPS"].map(lambda v: f"{v:g}")
   )
   return df.reset_index(drop=True)
+
+
+def _secret(key, default=None):
+  try:
+    return st.secrets[key]
+  except Exception:
+    return default
+
+
+def is_admin():
+  """Vero solo se l'URL contiene ?admin=<chiave> uguale a quella nei secrets."""
+  token = _secret("admin_token")
+  given = st.query_params.get("admin", None)
+  if isinstance(given, list):
+    given = given[0] if given else None
+  if not token or not given:
+    return False
+  return hmac.compare_digest(str(token), str(given))
+
+
+def epley_1rm(kg, reps, rir=0):
+  """1RM teorico (Epley): kg x (1 + (reps + RIR) / 30)."""
+  reps_eff = float(reps) + max(float(rir or 0), 0.0)
+  return float(kg) if reps_eff <= 1 else float(kg) * (1 + reps_eff / 30)
+
+
+def latest_value(df_src, col):
+  """Ultimo valore non vuoto di una colonna (in ordine di data)."""
+  if df_src is None or df_src.empty or col not in df_src.columns:
+    return None
+  s = df_src.dropna(subset=[col]).sort_values("DATE_DT", kind="stable")[col]
+  return float(s.iloc[-1]) if len(s) else None
+
+
+def parse_dates(series):
+  """Legge date ISO (2026-10-20) e italiane (20/10/2026) nella stessa colonna."""
+  s = series.astype(str).str.strip()
+  d = pd.to_datetime(s.str.slice(0, 10), format="%Y-%m-%d", errors="coerce")
+  m = d.isna()
+  if m.any():
+    d = d.fillna(pd.to_datetime(s[m], format="%d/%m/%Y", errors="coerce"))
+  m = d.isna()
+  if m.any():
+    d = d.fillna(pd.to_datetime(s[m], errors="coerce", dayfirst=True))
+  return d
+
+
+def append_log_row(values):
+  """Aggiunge una riga alla scheda Carichi (la crea se non esiste)."""
+  import gspread
+
+  info = _secret("gcp_service_account")
+  if info is None:
+    raise RuntimeError("Manca [gcp_service_account] nei secrets di Streamlit.")
+  gc = gspread.service_account_from_dict(dict(info))
+  sh = gc.open_by_key(SHEET_ID)
+  try:
+    ws = sh.worksheet(LOG_SHEET_NAME)
+  except gspread.WorksheetNotFound:
+    ws = sh.add_worksheet(title=LOG_SHEET_NAME, rows=2000, cols=len(LOG_HEADERS))
+    ws.append_row(LOG_HEADERS, value_input_option="RAW")
+
+  header = ws.row_values(1)
+  canon_cols = []
+  for h in header:
+    k = str(h).strip().lower()
+    canon_cols.append(
+        next((c for c, al in LOG_COLUMN_ALIASES.items() if k in al), None)
+    )
+  # aggiunge in fondo le colonne mancanti (es. BW e Target)
+  for key, title in LOG_HEADERS_BY_KEY.items():
+    if key not in canon_cols:
+      header.append(title)
+      canon_cols.append(key)
+      ws.update_cell(1, len(header), title)
+  row = [values.get(c, "") if c else "" for c in canon_cols]
+  ws.append_row(row, value_input_option="RAW")
 
 
 @st.cache_data(ttl=60)
@@ -1536,23 +1654,201 @@ elif st.session_state.page == "dataload":
   st.sidebar.divider()
   st.sidebar.header("🔍 Filtri Selezione & Confronto")
 
-  tab_log, tab_force_eval, tab1 = st.tabs([
-      "📈 Carichi & Massimali (tutti gli esercizi)",
-      "🏋️ Valutazione Forza & 1RM (Google Sheet)",
-      "📊 Tonnellaggio & Volume Pesi",
-  ])
+  admin_mode = is_admin()
+  if admin_mode:
+    st.sidebar.success("✍️ Modalità modifica attiva")
+  elif st.query_params.get("admin"):
+    st.sidebar.warning(
+        "Modalità modifica non attiva: chiave non valida o non configurata."
+    )
+
+  if admin_mode:
+    tab_edit, tab_log, tab_force_eval, tab1 = st.tabs([
+        "✍️ Inserisci Carichi",
+        "📈 Carichi & Massimali (tutti gli esercizi)",
+        "🏋️ Valutazione Forza & 1RM (Google Sheet)",
+        "📊 Tonnellaggio & Volume Pesi",
+    ])
+  else:
+    tab_edit = None
+    tab_log, tab_force_eval, tab1 = st.tabs([
+        "📈 Carichi & Massimali (tutti gli esercizi)",
+        "🏋️ Valutazione Forza & 1RM (Google Sheet)",
+        "📊 Tonnellaggio & Volume Pesi",
+    ])
+
+  if tab_edit is not None:
+    with tab_edit:
+      st.markdown("##### ✍️ Inserisci una serie")
+      st.caption(
+          "Questa scheda compare solo a te: chi usa il link normale vede i dati"
+          " ma non può modificarli."
+      )
+      if "edit_flash" in st.session_state:
+        st.success(st.session_state.pop("edit_flash"))
+
+      can_save = _secret("gcp_service_account") is not None
+      if not can_save:
+        st.warning(
+            "Il salvataggio non è ancora configurato (mancano le credenziali"
+            " Google nei secrets di Streamlit). Puoi comunque provare i calcoli."
+        )
+
+      NUOVO_ES = "➕ Nuovo esercizio…"
+      giocatori_all = sorted(ruoli_dict.keys())
+      esercizi_noti = set(ESERCIZI_BASE)
+      if not df_log.empty:
+        esercizi_noti |= set(df_log["ESERCIZIO"].unique())
+
+      c1, c2 = st.columns(2)
+      with c1:
+        e_atleta = st.selectbox("Giocatore", giocatori_all, key="edit_atleta")
+      with c2:
+        e_scelta = st.selectbox(
+            "Esercizio", sorted(esercizi_noti) + [NUOVO_ES], key="edit_esercizio"
+        )
+      if e_scelta == NUOVO_ES:
+        e_esercizio = st.text_input("Nome del nuovo esercizio", key="edit_nuovo_es")
+        e_esercizio = e_esercizio.strip()
+      else:
+        e_esercizio = e_scelta
+
+      # Dati già registrati per questo giocatore / esercizio
+      if df_log.empty:
+        df_atl = df_atl_es = df_log
+      else:
+        df_atl = df_log[df_log["ATHLETE"] == e_atleta]
+        df_atl_es = df_atl[df_atl["ESERCIZIO"] == e_esercizio]
+
+      bw_def = latest_value(df_atl, "BW") or 0.0
+      tgt_def = latest_value(df_atl_es, "TARGET")
+      if tgt_def is None and not df_log.empty:
+        tgt_def = latest_value(df_log[df_log["ESERCIZIO"] == e_esercizio], "TARGET")
+      tgt_def = tgt_def or 0.0
+
+      c3, c4, c5, c6 = st.columns(4)
+      with c3:
+        e_kg = st.number_input(
+            "Kg", min_value=0.0, max_value=600.0, value=100.0, step=2.5, key="edit_kg"
+        )
+      with c4:
+        e_reps = st.number_input(
+            "Ripetizioni", min_value=1, max_value=30, value=5, step=1, key="edit_reps"
+        )
+      with c5:
+        e_rir_sel = st.selectbox(
+            "RIR (facoltativo)", ["—", 0, 1, 2, 3, 4, 5], key="edit_rir"
+        )
+      with c6:
+        e_data = st.date_input("Data", value=date.today(), key="edit_data")
+
+      c7, c8 = st.columns(2)
+      with c7:
+        e_bw = st.number_input(
+            "Peso corporeo (kg)",
+            min_value=0.0,
+            max_value=250.0,
+            value=float(bw_def),
+            step=0.5,
+            key=f"edit_bw_{e_atleta}",
+            help="Serve per la forza relativa. 0 = non indicato.",
+        )
+      with c8:
+        e_target = st.number_input(
+            "Target forza relativa (× peso corporeo)",
+            min_value=0.0,
+            max_value=10.0,
+            value=float(tgt_def),
+            step=0.05,
+            key=f"edit_target_{e_atleta}_{e_esercizio}",
+            help="Es. 1.8 = 1RM pari a 1,8 volte il peso corporeo. 0 = nessun target.",
+        )
+      e_note = st.text_input("Note (facoltativo)", key="edit_note")
+
+      # --- Calcoli in tempo reale -------------------------------------------
+      e_rir = None if e_rir_sel == "—" else int(e_rir_sel)
+      e1rm_new = epley_1rm(e_kg, e_reps, e_rir or 0)
+      reps_eff = e_reps + (e_rir or 0)
+      reliable = reps_eff <= 10
+      prev_best = df_atl_es["E1RM"].max() if len(df_atl_es) else float("nan")
+      cand = [v for v in [None if pd.isna(prev_best) else float(prev_best),
+                          e1rm_new if reliable else None] if v is not None]
+      forza_max = max(cand) if cand else None
+
+      st.markdown("###### 🧮 Calcolo con questa serie")
+      m1, m2, m3, m4 = st.columns(4)
+      m1.metric("1RM teorico (Epley)", f"{e1rm_new:.1f} kg")
+      m2.metric(
+          "Forza massima attuale",
+          f"{forza_max:.1f} kg" if forza_max else "—",
+      )
+      rel = (forza_max / e_bw) if (forza_max and e_bw > 0) else None
+      m3.metric("Forza relativa (× BW)", f"{rel:.2f}" if rel else "—")
+      if e_target > 0 and e_bw > 0:
+        ideale = e_target * e_bw
+        perc = (forza_max or 0) / ideale * 100
+        m4.metric(
+            "Target (1RM ideale)",
+            f"{ideale:.1f} kg",
+            f"{perc:.0f}% raggiunto",
+            delta_color="off",
+        )
+      else:
+        m4.metric("Target (1RM ideale)", "—")
+      st.caption(
+          f"1RM = {e_kg:g} × (1 + ({e_reps} + {e_rir or 0}) / 30). Con più di 10"
+          " ripetizioni (RIR compreso) la stima non è affidabile e la serie non"
+          " entra nella forza massima."
+      )
+
+      if st.button("💾 Salva serie", disabled=not can_save, key="edit_save"):
+        if not e_esercizio:
+          st.error("Scrivi il nome dell'esercizio.")
+        elif e_kg <= 0:
+          st.error("Inserisci i kg sollevati.")
+        else:
+          try:
+            append_log_row({
+                "DATA": e_data.strftime("%Y-%m-%d"),
+                "ATLETA": e_atleta,
+                "ESERCIZIO": e_esercizio,
+                "PESO": float(e_kg),
+                "REPS": int(e_reps),
+                "RIR": e_rir if e_rir is not None else "",
+                "BW": float(e_bw) if e_bw > 0 else "",
+                "TARGET": float(e_target) if e_target > 0 else "",
+                "NOTE": e_note.strip(),
+            })
+            load_google_sheet_log.clear()
+            st.session_state["edit_flash"] = (
+                f"✅ Salvato: {e_atleta} — {e_esercizio}, {e_kg:g} kg × {e_reps}"
+                f" (1RM stimato {e1rm_new:.1f} kg)"
+            )
+            st.rerun()
+          except Exception as exc:
+            st.error(f"Non sono riuscito a salvare ({type(exc).__name__}): {exc}")
+
+      if len(df_atl_es):
+        st.markdown("###### 🕘 Ultime serie registrate per questo esercizio")
+        recent = df_atl_es.sort_values("DATE_DT", ascending=False, kind="stable")
+        recent = recent[["DATE_STR", "SERIE", "RIR", "E1RM", "NOTE"]].head(8).copy()
+        recent["E1RM"] = recent["E1RM"].round(1)
+        recent.columns = ["Data", "Serie", "RIR", "1RM stimato (kg)", "Note"]
+        st.dataframe(recent, use_container_width=True, hide_index=True)
 
   with tab_log:
     st.markdown("##### 📈 Carichi, Massimali & Andamento per Esercizio")
 
     if df_log.empty:
-      st.info(
-          "ℹ️ Non trovo la scheda **Carichi** nel Google Sheet. Creala con le"
-          " colonne: Data | Atleta | Esercizio | Peso | Reps | RIR (facoltativa)"
-          " | Note (facoltativa), una riga per ogni serie. Esempio:"
-          " 2026-10-20 | Cognome | Clean | 120 | 4"
-      )
-      st.caption(f"🔎 Diagnosi: {diagnose_log_sheet()}")
+      if admin_mode:
+        st.info(
+            "ℹ️ Nessuna serie registrata (o scheda non leggibile). Inserisci la"
+            " prima dalla scheda **✍️ Inserisci Carichi**: la scheda «Carichi»"
+            " del Google Sheet viene creata da sola al primo salvataggio."
+        )
+        st.caption(f"🔎 Diagnosi: {diagnose_log_sheet()}")
+      else:
+        st.info("ℹ️ Nessun carico registrato per ora.")
     else:
       st.caption(
           "1RM stimato = Peso × (1 + (Reps + RIR) / 30), formula di Epley,"
@@ -1586,12 +1882,26 @@ elif st.session_state.page == "dataload":
         best_e = g_e.loc[g_e["E1RM"].idxmax()] if not g_e.empty else None
         best_w = g.loc[g["PESO"].idxmax()]
         last = g.sort_values("DATE_DT", kind="stable").iloc[-1]
+
+        # Peso corporeo attuale e target di forza relativa (ultimi inseriti)
+        bw_now = latest_value(df_log[df_log["ATHLETE"] == atl], "BW")
+        tgt = latest_value(g, "TARGET")
+        if tgt is None:
+          tgt = latest_value(df_log[df_log["ESERCIZIO"] == es], "TARGET")
+        e1 = float(best_e["E1RM"]) if best_e is not None else None
+        ideale = tgt * bw_now if (tgt and bw_now) else None
+
         rows.append({
             "ATLETA": atl,
             "ESERCIZIO": es,
-            "E1RM": round(float(best_e["E1RM"]), 1) if best_e is not None else None,
+            "E1RM": round(e1, 1) if e1 is not None else None,
             "SERIE_E1RM": best_e["SERIE"] if best_e is not None else "",
             "DATA_E1RM": best_e["DATE_STR"] if best_e is not None else "",
+            "BW": bw_now,
+            "FORZA_REL": round(e1 / bw_now, 2) if (e1 and bw_now) else None,
+            "TARGET": tgt,
+            "IDEALE": round(ideale, 1) if ideale else None,
+            "PERC_TARGET": round(e1 / ideale * 100) if (e1 and ideale) else None,
             "PESO_MAX": float(best_w["PESO"]),
             "SERIE_PESO_MAX": best_w["SERIE"],
             "ULTIMA_DATA": last["DATE_STR"],
@@ -1607,9 +1917,14 @@ elif st.session_state.page == "dataload":
               columns={
                   "ATLETA": "Atleta",
                   "ESERCIZIO": "Esercizio",
-                  "E1RM": "1RM stimato (kg)",
+                  "E1RM": "Forza massima attuale: 1RM stimato (kg)",
                   "SERIE_E1RM": "Serie del 1RM",
                   "DATA_E1RM": "Data 1RM",
+                  "BW": "Peso corporeo (kg)",
+                  "FORZA_REL": "Forza relativa (×BW)",
+                  "TARGET": "Target (×BW)",
+                  "IDEALE": "1RM ideale (kg)",
+                  "PERC_TARGET": "% del target",
                   "PESO_MAX": "Carico max (kg)",
                   "SERIE_PESO_MAX": "Serie del carico max",
                   "ULTIMA_DATA": "Ultima seduta",
@@ -1622,6 +1937,29 @@ elif st.session_state.page == "dataload":
           hide_index=True,
       )
 
+      # Sintesi per l'atleta e l'esercizio scelti
+      if sel_atleta != "Tutti gli atleti":
+        sel_row = summ[summ["ESERCIZIO"] == sel_es]
+        if not sel_row.empty:
+          r0 = sel_row.iloc[0]
+          k1, k2, k3, k4 = st.columns(4)
+          k1.metric(
+              "Forza massima attuale (1RM)",
+              f"{r0['E1RM']:.1f} kg" if pd.notna(r0["E1RM"]) else "—",
+          )
+          k2.metric(
+              "Forza relativa (× BW)",
+              f"{r0['FORZA_REL']:.2f}" if pd.notna(r0["FORZA_REL"]) else "—",
+          )
+          k3.metric(
+              "Target forza relativa",
+              f"{r0['TARGET']:.2f} × BW" if pd.notna(r0["TARGET"]) else "—",
+          )
+          k4.metric(
+              "Target raggiunto",
+              f"{r0['PERC_TARGET']:.0f}%" if pd.notna(r0["PERC_TARGET"]) else "—",
+          )
+
       if sel_atleta == "Tutti gli atleti":
         bar_df = summ[summ["ESERCIZIO"] == sel_es].dropna(subset=["E1RM"])
         bar_x, bar_title = "ATLETA", f"1RM stimato (kg) — {sel_es}"
@@ -1630,11 +1968,12 @@ elif st.session_state.page == "dataload":
         bar_x, bar_title = "ESERCIZIO", f"1RM stimato (kg) — {sel_atleta}"
       if not bar_df.empty:
         st.write(f"**{bar_title}**")
-        st.altair_chart(
+        bar_order = bar_df.sort_values("E1RM", ascending=False)[bar_x].tolist()
+        bars_log = (
             alt.Chart(bar_df)
             .mark_bar(color="#2563eb")
             .encode(
-                x=alt.X(f"{bar_x}:N", sort="-y", title=None),
+                x=alt.X(f"{bar_x}:N", sort=bar_order, title=None),
                 y=alt.Y("E1RM:Q", title="1RM stimato (kg)"),
                 tooltip=[
                     "ATLETA",
@@ -1642,11 +1981,36 @@ elif st.session_state.page == "dataload":
                     alt.Tooltip("E1RM:Q", title="1RM stimato (kg)", format=".1f"),
                     alt.Tooltip("SERIE_E1RM:N", title="Serie"),
                     alt.Tooltip("DATA_E1RM:N", title="Data"),
+                    alt.Tooltip("FORZA_REL:Q", title="Forza relativa (×BW)", format=".2f"),
+                    alt.Tooltip("PERC_TARGET:Q", title="% del target", format=".0f"),
                 ],
             )
-            .properties(height=340),
-            use_container_width=True,
         )
+        ideal_df = bar_df.dropna(subset=["IDEALE"])
+        if ideal_df.empty:
+          chart_bar = bars_log.properties(height=340)
+        else:
+          ticks = (
+              alt.Chart(ideal_df)
+              .mark_tick(color="#f97316", thickness=4, size=60)
+              .encode(
+                  x=alt.X(f"{bar_x}:N", sort=bar_order),
+                  y=alt.Y("IDEALE:Q"),
+                  tooltip=[
+                      "ATLETA",
+                      "ESERCIZIO",
+                      alt.Tooltip("IDEALE:Q", title="1RM ideale (kg)", format=".1f"),
+                      alt.Tooltip("TARGET:Q", title="Target (×BW)", format=".2f"),
+                  ],
+              )
+          )
+          chart_bar = alt.layer(bars_log, ticks).properties(height=340)
+        st.altair_chart(chart_bar, use_container_width=True)
+        if not ideal_df.empty:
+          st.caption(
+              "🟠 Tacca arancione = 1RM ideale (target forza relativa × peso"
+              " corporeo)"
+          )
 
       # --- Andamento nel tempo per esercizio ----------------------------------
       st.markdown(f"###### 📈 Andamento — {sel_es}")
