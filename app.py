@@ -3,6 +3,7 @@ import glob
 import hmac
 import html as html_lib
 import io
+import json
 import os
 import re
 import unicodedata
@@ -806,6 +807,46 @@ def _secret(key, default=None):
     return default
 
 
+def has_gcp_credentials():
+  return (
+      _secret("gcp_service_account") is not None
+      or bool(_secret("gcp_service_account_json"))
+  )
+
+
+def _gcp_info():
+  """Credenziali dell'account di servizio Google dai secrets.
+
+  Metodo semplice: gcp_service_account_json = ''' ...intero file JSON... '''
+  Metodo alternativo: sezione [gcp_service_account] con i singoli campi.
+  """
+  raw = _secret("gcp_service_account_json")
+  if raw:
+    try:
+      info = json.loads(raw)
+    except Exception:
+      raise RuntimeError(
+          "gcp_service_account_json non è un JSON valido: incolla l'intero file"
+          " scaricato da Google, dalla { iniziale alla } finale."
+      )
+  else:
+    section = _secret("gcp_service_account")
+    if section is None:
+      return None
+    info = dict(section)
+  key = str(info.get("private_key", ""))
+  if "\\n" in key:  # a capo scritti come testo: li ripristino
+    key = key.replace("\\n", "\n")
+  if not key.strip().startswith("-----BEGIN"):
+    raise RuntimeError(
+        "La private_key nei secrets non è completa: deve iniziare con"
+        " -----BEGIN PRIVATE KEY----- (è il valore reale del file JSON, non"
+        " i puntini di esempio)."
+    )
+  info["private_key"] = key
+  return info
+
+
 def is_admin():
   """Vero solo se l'URL contiene ?admin=<chiave> uguale a quella nei secrets."""
   token = _secret("admin_token")
@@ -848,10 +889,13 @@ def append_log_row(values):
   """Aggiunge una riga alla scheda Carichi (la crea se non esiste)."""
   import gspread
 
-  info = _secret("gcp_service_account")
+  info = _gcp_info()
   if info is None:
-    raise RuntimeError("Manca [gcp_service_account] nei secrets di Streamlit.")
-  gc = gspread.service_account_from_dict(dict(info))
+    raise RuntimeError(
+        "Mancano le credenziali Google nei secrets di Streamlit"
+        " (gcp_service_account_json)."
+    )
+  gc = gspread.service_account_from_dict(info)
   sh = gc.open_by_key(SHEET_ID)
   try:
     ws = sh.worksheet(LOG_SHEET_NAME)
@@ -1695,7 +1739,7 @@ elif st.session_state.page == "dataload":
       if "edit_flash" in st.session_state:
         st.success(st.session_state.pop("edit_flash"))
 
-      can_save = _secret("gcp_service_account") is not None
+      can_save = has_gcp_credentials()
       if not can_save:
         st.warning(
             "Il salvataggio non è ancora configurato (mancano le credenziali"
