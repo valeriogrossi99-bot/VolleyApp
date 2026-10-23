@@ -715,7 +715,7 @@ def _resolve_athlete(name):
 
 @st.cache_data(ttl=60)
 def load_google_sheet_log():
-  sheet_id = "1ib2DrRfODly8HT_V8c2PRNdALYt1_vDCAbvtAK7U1aw"
+  sheet_id = _secret("sheet_id") or SHEET_ID
   url = (
       f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq"
       f"?tqx=out:csv&sheet={quote(LOG_SHEET_NAME)}"
@@ -915,6 +915,74 @@ def _append_via_apps_script(values):
     )
 
 
+def check_apps_script():
+  """Prova lo script Google senza scrivere nulla. Ritorna (ok, messaggio)."""
+  url = _secret("apps_script_url")
+  key = _secret("apps_script_key")
+  if not url or not key:
+    return False, "Mancano apps_script_url o apps_script_key nei secrets."
+  try:
+    r = requests.post(
+        str(url).strip(),
+        data=json.dumps({"key": str(key), "azione": "ping"}),
+        headers={"Content-Type": "text/plain;charset=utf-8"},
+        timeout=40,
+    )
+  except Exception as e:
+    return False, f"Non riesco a collegarmi allo script ({type(e).__name__})."
+  try:
+    res = r.json()
+  except Exception:
+    return False, (
+        f"Google risponde (codice {r.status_code}) ma non è lo script."
+        " Controlla che l'indirizzo finisca con /exec e che il deployment sia"
+        " «Esegui come: Io» e «Chi ha accesso: Chiunque»."
+    )
+  if not res.get("ok"):
+    return False, (
+        f"Lo script risponde ma rifiuta: {res.get('errore', 'errore')}."
+        " Se dice «chiave non valida», apps_script_key nei secrets deve essere"
+        " identica a CHIAVE nello script."
+    )
+  nome = res.get("foglio", "?")
+  fid = str(res.get("id", ""))
+  atteso = _secret("sheet_id") or SHEET_ID
+  if fid and fid != atteso:
+    return False, (
+        f"Lo script funziona, ma scrive nel file «{nome}» (ID {fid}) mentre"
+        f" l'app legge un altro file (ID {atteso}). Nei secrets scrivi:"
+        f' sheet_id = "{fid}"'
+    )
+  scheda = (
+      "presente" if res.get("scheda") else "verrà creata al primo salvataggio"
+  )
+  return True, (
+      f"Lo script funziona e scrive nel file «{nome}», lo stesso che legge"
+      f" l'app. Scheda «Carichi»: {scheda}."
+  )
+
+
+def check_read_access():
+  """Verifica che l'app riesca a leggere il foglio. Ritorna (ok, messaggio)."""
+  sheet_id = _secret("sheet_id") or SHEET_ID
+  url = (
+      f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq"
+      f"?tqx=out:csv&sheet={quote(LOG_SHEET_NAME)}"
+  )
+  try:
+    r = requests.get(url, headers=REQ_HEADERS, timeout=15)
+  except Exception as e:
+    return False, f"Non riesco a collegarmi a Google ({type(e).__name__})."
+  if r.status_code != 200 or r.text.lstrip().lower().startswith("<"):
+    return False, (
+        f"L'app non riesce a leggere il file (ID {sheet_id}, codice"
+        f" {r.status_code}). In Google Sheet: Condividi → Accesso generale →"
+        " «Chiunque abbia il link» → ruolo «Visualizzatore». Controlla anche"
+        " che sheet_id nei secrets sia l'ID giusto."
+    )
+  return True, f"L'app legge il file (ID {sheet_id})."
+
+
 def append_log_row(values):
   """Aggiunge una riga alla scheda Carichi (la crea se non esiste)."""
   if _secret("apps_script_url"):
@@ -928,7 +996,7 @@ def append_log_row(values):
         " (gcp_service_account_json)."
     )
   gc = gspread.service_account_from_dict(info)
-  sh = gc.open_by_key(SHEET_ID)
+  sh = gc.open_by_key(_secret("sheet_id") or SHEET_ID)
   try:
     ws = sh.worksheet(LOG_SHEET_NAME)
   except gspread.WorksheetNotFound:
@@ -955,7 +1023,7 @@ def append_log_row(values):
 @st.cache_data(ttl=60)
 def diagnose_log_sheet():
   """Spiega perché la scheda Carichi non risulta leggibile."""
-  sheet_id = "1ib2DrRfODly8HT_V8c2PRNdALYt1_vDCAbvtAK7U1aw"
+  sheet_id = _secret("sheet_id") or SHEET_ID
   url = (
       f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq"
       f"?tqx=out:csv&sheet={quote(LOG_SHEET_NAME)}"
@@ -1783,6 +1851,17 @@ elif st.session_state.page == "dataload":
             " di salvataggio nei secrets di Streamlit). Puoi comunque provare"
             " i calcoli."
         )
+
+      with st.expander("🔧 Verifica collegamento con il Google Sheet"):
+        st.caption(
+            "Controlla, senza scrivere nulla, che lo script e il foglio siano"
+            " collegati bene."
+        )
+        if st.button("Esegui verifica", key="edit_check"):
+          ok_w, msg_w = check_apps_script()
+          (st.success if ok_w else st.error)(f"Scrittura: {msg_w}")
+          ok_r, msg_r = check_read_access()
+          (st.success if ok_r else st.error)(f"Lettura: {msg_r}")
 
       NUOVO_ES = "➕ Nuovo esercizio…"
       giocatori_all = sorted(ruoli_dict.keys())
