@@ -814,6 +814,10 @@ def has_gcp_credentials():
   )
 
 
+def has_save_backend():
+  return bool(_secret("apps_script_url")) or has_gcp_credentials()
+
+
 def _gcp_info():
   """Credenziali dell'account di servizio Google dai secrets.
 
@@ -885,8 +889,36 @@ def parse_dates(series):
   return d
 
 
+def _append_via_apps_script(values):
+  """Salva la riga tramite una web app Google Apps Script (gratuita)."""
+  url = _secret("apps_script_url")
+  key = _secret("apps_script_key")
+  if not key:
+    raise RuntimeError("Manca apps_script_key nei secrets di Streamlit.")
+  r = requests.post(
+      str(url).strip(),
+      data=json.dumps({"key": str(key), "riga": values}),
+      headers={"Content-Type": "text/plain;charset=utf-8"},
+      timeout=40,
+  )
+  try:
+    res = r.json()
+  except Exception:
+    raise RuntimeError(
+        f"Risposta inattesa dallo script Google (codice {r.status_code}):"
+        " controlla che la web app sia pubblicata con accesso «Chiunque» e"
+        " che l'indirizzo finisca con /exec."
+    )
+  if not res.get("ok"):
+    raise RuntimeError(
+        f"Lo script ha rifiutato il salvataggio: {res.get('errore', 'errore')}"
+    )
+
+
 def append_log_row(values):
   """Aggiunge una riga alla scheda Carichi (la crea se non esiste)."""
+  if _secret("apps_script_url"):
+    return _append_via_apps_script(values)
   import gspread
 
   info = _gcp_info()
@@ -1186,12 +1218,17 @@ elif st.session_state.page == "datajump":
 
   with tab1:
     if not daily_summary.empty:
-      st.markdown("##### 🔵 Volume Salti per Data e Giocatore")
-      match_dates = daily_summary[daily_summary["IS_MATCH"].astype(bool)][
+      st.markdown(
+          "##### 🔵 Volume Salti per Data e Giocatore — ultime 7 sedute"
+      )
+      # Solo le 7 date più recenti (tra quelle che passano i filtri)
+      ultime_date = sorted(daily_summary["DATE_STR"].unique())[-7:]
+      daily_recent = daily_summary[daily_summary["DATE_STR"].isin(ultime_date)]
+      match_dates = daily_recent[daily_recent["IS_MATCH"].astype(bool)][
           ["DATE_STR"]
       ].drop_duplicates()
       bars1 = (
-          alt.Chart(daily_summary)
+          alt.Chart(daily_recent)
           .mark_bar()
           .encode(
               x=alt.X("DATE_STR:N", title="Data Seduta"),
@@ -1739,11 +1776,12 @@ elif st.session_state.page == "dataload":
       if "edit_flash" in st.session_state:
         st.success(st.session_state.pop("edit_flash"))
 
-      can_save = has_gcp_credentials()
+      can_save = has_save_backend()
       if not can_save:
         st.warning(
-            "Il salvataggio non è ancora configurato (mancano le credenziali"
-            " Google nei secrets di Streamlit). Puoi comunque provare i calcoli."
+            "Il salvataggio non è ancora configurato (mancano le impostazioni"
+            " di salvataggio nei secrets di Streamlit). Puoi comunque provare"
+            " i calcoli."
         )
 
       NUOVO_ES = "➕ Nuovo esercizio…"
