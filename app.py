@@ -6,7 +6,9 @@ import io
 import json
 import os
 import re
+import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from urllib.parse import quote, urljoin
 import altair as alt
@@ -1070,6 +1072,354 @@ def diagnose_log_sheet():
   )
 
 
+# ------------------------------------------------------------------------------
+# Schede settimanali: ogni settimana 14 file (uno per atleta) con le schede A, B, C
+# ------------------------------------------------------------------------------
+SCHEDE_INDEX_SHEET = "Settimane"
+SESSIONI_LABEL = {
+    "A": "A · Forza",
+    "B": "B · Forza esplosiva",
+    "C": "C · Forza esplosiva",
+}
+SCHEDA_COLUMN_ALIASES = {
+    "EX": ["exercise", "esercizio", "esercizi"],
+    "SET": ["set", "serie"],
+    "REPS": ["reps", "rep", "ripetizioni"],
+    "WEIGHT": ["weight", "peso", "carico", "kg"],
+    "RIR": ["rir"],
+    "REST": ["rest", "recupero"],
+    "NOTE": ["note", "notes"],
+}
+SCHEDA_META_LABELS = {
+    "player": "player",
+    "giocatore": "player",
+    "atleta": "player",
+    "role": "role",
+    "ruolo": "role",
+    "period": "period",
+    "periodo": "period",
+}
+
+
+def _drive_target(text):
+  """Da un link o ID Drive: (id, tipo) con tipo = file / folder / auto."""
+  s = str(text).strip()
+  m = re.search(r"/folders/([A-Za-z0-9_-]{15,})", s)
+  if m:
+    return m.group(1), "folder"
+  m = re.search(r"/d/([A-Za-z0-9_-]{20,})", s)
+  if m:
+    return m.group(1), "file"
+  m = re.search(r"[?&]id=([A-Za-z0-9_-]{20,})", s)
+  if m:
+    return m.group(1), "auto"
+  if re.fullmatch(r"[A-Za-z0-9_-]{25,}", s):
+    return s, "auto"
+  return None
+
+
+def _is_empty(v):
+  return v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() == ""
+
+
+def _numbers(value):
+  """Tutti i numeri scritti in una cella ('6-4-4' -> [6, 4, 4])."""
+  if _is_empty(value) or hasattr(value, "year"):  # vuota o data
+    return []
+  s = str(value).replace(",", ".")
+  return [float(x) for x in re.findall(r"\d+(?:\.\d+)?", s)]
+
+
+def _parse_weights(cell):
+  """Pesi di una cella. '1 da 104' = una serie da 104 kg. Percentuali e cm: ignorati."""
+  if isinstance(cell, str):
+    if re.search(r"%|\bcm\b", cell, flags=re.I):
+      return [], None
+    m = re.match(r"^\s*(\d+)\s*da\s*(\d+(?:[.,]\d+)?)", cell, flags=re.I)
+    if m:
+      return [float(m.group(2).replace(",", "."))], int(m.group(1))
+  return _numbers(cell), None
+
+
+def _expand_sets(w_cell, reps_cell, sets_cell, rir_cell):
+  """Trasforma le celle di una riga in serie (n, ripetizioni, kg, RIR)."""
+  weights, forced_n = _parse_weights(w_cell)
+  weights = [w for w in weights if w > 0]
+  reps = _numbers(reps_cell)
+  if not weights or not reps:
+    return []
+  sets_list = _numbers(sets_cell)
+  n_sets = int(sets_list[0]) if sets_list else 0
+  n = forced_n or max(len(weights), len(reps), n_sets)
+  n = max(1, min(n, 12))
+  rirs = _numbers(rir_cell)
+  rir = sum(rirs) / len(rirs) if rirs else 0.0
+  out = []
+  for i in range(n):
+    w = weights[i] if i < len(weights) else weights[-1]
+    r = reps[i] if i < len(reps) else reps[-1]
+    out.append((i + 1, int(r), float(w), float(rir)))
+  return out
+
+
+def _parse_scheda_df(df):
+  """Legge una scheda (tabella senza intestazioni).
+
+  Ritorna (metadati, righe): metadati = player/role/period,
+  righe = una per ogni serie con carico.
+  """
+  meta = {}
+  for i in range(min(len(df), 12)):
+    row = df.iloc[i].tolist()
+    for j, cell in enumerate(row):
+      if isinstance(cell, str):
+        key = SCHEDA_META_LABELS.get(_slug(cell))
+        if key and key not in meta:
+          nxt = next((str(c).strip() for c in row[j + 1:] if not _is_empty(c)), None)
+          if nxt:
+            meta[key] = nxt
+
+  mapping = None
+  seduta = 0
+  rows = []
+  for i in range(len(df)):
+    row = df.iloc[i].tolist()
+    cells = [str(c).strip().lower() if isinstance(c, str) else "" for c in row]
+    if any(c in SCHEDA_COLUMN_ALIASES["EX"] for c in cells) and any(
+        c in SCHEDA_COLUMN_ALIASES["REPS"] for c in cells
+    ):
+      mapping = {}
+      for j, c in enumerate(cells):
+        for k, aliases in SCHEDA_COLUMN_ALIASES.items():
+          if c in aliases and k not in mapping:
+            mapping[k] = j
+      seduta += 1
+      continue
+    if mapping is None or "EX" not in mapping:
+      continue
+
+    def cell(k):
+      idx = mapping.get(k)
+      return row[idx] if idx is not None and idx < len(row) else None
+
+    ex = cell("EX")
+    if not isinstance(ex, str) or not ex.strip():
+      continue
+    note = cell("NOTE")
+    note = "" if _is_empty(note) else str(note).strip()
+    for n, reps, kg, rir in _expand_sets(
+        cell("WEIGHT"), cell("REPS"), cell("SET"), cell("RIR")
+    ):
+      reps_eff = reps + max(rir, 0.0)
+      rows.append({
+          "SEDUTA": seduta,
+          "ESERCIZIO": " ".join(ex.split()),
+          "SET_N": n,
+          "REPS": reps,
+          "PESO": kg,
+          "RIR": rir,
+          "E1RM": epley_1rm(kg, reps, rir) if reps_eff <= 10 else float("nan"),
+          "TONNAGE": kg * reps,
+          "NOTE": note,
+      })
+  return meta, rows
+
+
+def _fetch_workbook(file_id):
+  """Scarica un intero file Google Sheet (tutte le schede) in un colpo solo."""
+  url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+  r = requests.get(url, headers=REQ_HEADERS, timeout=90)
+  if r.status_code != 200 or r.content[:2] != b"PK":
+    raise RuntimeError(
+        f"codice {r.status_code}: il file non è condiviso come «Chiunque abbia"
+        " il link → Visualizzatore» oppure non è un Google Sheet"
+    )
+  return pd.read_excel(io.BytesIO(r.content), sheet_name=None, header=None)
+
+
+def _safe_fetch(file_id):
+  try:
+    return _fetch_workbook(file_id), None
+  except ImportError:
+    return None, "manca la libreria openpyxl (aggiungila al requirements.txt)"
+  except Exception as e:
+    return None, f"{type(e).__name__}: {e}"
+
+
+def _looks_like_xlsx(file_id):
+  """Vero se l'ID è un Google Sheet scaricabile (controlla solo i primi byte)."""
+  try:
+    url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+    r = requests.get(url, headers=REQ_HEADERS, timeout=30, stream=True)
+    head = next(r.iter_content(2), b"")
+    r.close()
+    return r.status_code == 200 and head == b"PK"
+  except Exception:
+    return False
+
+
+def _list_drive_folder(folder_id):
+  """Elementi di una cartella Drive condivisa con «Chiunque abbia il link»."""
+  page = _fetch_html(
+      f"https://drive.google.com/embeddedfolderview?id={folder_id}", timeout=30
+  )
+  found = {}
+
+  def add(item_id, kind):
+    if item_id and item_id != folder_id and (
+        item_id not in found or found[item_id] == "auto"
+    ):
+      found[item_id] = kind
+
+  for href in re.findall(r'href="([^"]+)"', page):
+    t = _drive_target(html_lib.unescape(href))
+    if t:
+      add(*t)
+  for m in re.finditer(r'(?:data-id="|id="entry-)([A-Za-z0-9_-]{20,})"', page):
+    add(m.group(1), "auto")
+  return list(found.items())
+
+
+def _expand_sources(sources):
+  """Da link di file e/o cartelle all'elenco di tutti i file da leggere."""
+  files, notes = [], []
+  seen_files, seen_folders = set(), set()
+  queue = [(i, k, 0) for i, k in sources]
+  while queue and len(files) < 600:
+    item_id, kind, depth = queue.pop(0)
+    if kind == "auto":
+      kind = "file" if _looks_like_xlsx(item_id) else "folder"
+    if kind == "file":
+      if item_id not in seen_files:
+        seen_files.add(item_id)
+        files.append(item_id)
+      continue
+    if item_id in seen_folders or depth > 3:
+      continue
+    seen_folders.add(item_id)
+    items = _list_drive_folder(item_id)
+    notes.append(f"cartella {item_id[:8]}…: {len(items)} elementi trovati")
+    for child_id, child_kind in items:
+      queue.append((child_id, child_kind, depth + 1))
+  return files, notes
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_schede_index():
+  """Link dei file o delle cartelle: scheda «Settimane» del foglio + secrets."""
+  targets = []
+  sheet_id = _secret("sheet_id") or SHEET_ID
+  url = (
+      f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq"
+      f"?tqx=out:csv&sheet={quote(SCHEDE_INDEX_SHEET)}"
+  )
+  try:
+    raw = pd.read_csv(url, header=None, dtype=str)
+    for v in raw.values.ravel():
+      if isinstance(v, str):
+        t = _drive_target(v)
+        if t:
+          targets.append(t)
+  except Exception:
+    pass
+  extra = _secret("schede_urls")
+  if extra:
+    items = extra if isinstance(extra, (list, tuple)) else str(extra).splitlines()
+    for item in items:
+      t = _drive_target(item)
+      if t:
+        targets.append(t)
+  seen, out = set(), []
+  for t in targets:
+    if t[0] not in seen:
+      seen.add(t[0])
+      out.append(t)
+  return tuple(out)
+
+
+@st.cache_data(ttl=300, show_spinner="Cerco i file delle schede…")
+def list_schede_files(sources):
+  files, notes = _expand_sources(sources)
+  return tuple(files), tuple(notes)
+
+
+@st.cache_resource
+def _schede_file_cache():
+  return {}
+
+
+def _load_file_cached(file_id, cache):
+  """Scarica e legge un file; le settimane vecchie restano in memoria più a lungo."""
+  now = time.time()
+  weeks = [e["week"] for e in cache.values() if e.get("week") is not None]
+  newest = max(weeks) if weeks else None
+  e = cache.get(file_id)
+  if e:
+    if e.get("error"):
+      ttl = 600
+    elif e.get("week") is not None and newest is not None and e["week"] <= newest - 2:
+      ttl = 21600
+    else:
+      ttl = 300
+    if now - e["t"] < ttl:
+      return e
+  book, err = _safe_fetch(file_id)
+  if err:
+    e = {"t": now, "week": None, "tabs": [], "error": err}
+  else:
+    tabs, file_week = [], None
+    for tab, df in book.items():
+      meta, srows = _parse_scheda_df(df)
+      m = re.search(r"week\s*(\d+)", meta.get("period", ""), flags=re.I)
+      wk = int(m.group(1)) if m else None
+      if file_week is None and wk is not None:
+        file_week = wk
+      tabs.append({"tab": str(tab).strip(), "meta": meta, "rows": srows, "week": wk})
+    e = {"t": now, "week": file_week, "tabs": tabs, "error": None}
+  cache[file_id] = e
+  return e
+
+
+@st.cache_data(ttl=120, show_spinner="Leggo le schede settimanali…")
+def load_schede_settimanali(file_ids):
+  """Legge tutti i file. Ritorna (serie, riepilogo file e schede)."""
+  cache = _schede_file_cache()
+  with ThreadPoolExecutor(max_workers=6) as pool:
+    entries = list(pool.map(lambda fid: _load_file_cached(fid, cache), file_ids))
+
+  rows, info = [], []
+  for order, (fid, e) in enumerate(zip(file_ids, entries)):
+    short = fid[:8] + "…"
+    if e["error"]:
+      info.append({"File": short, "Scheda": "—", "Atleta": "—", "Periodo": "—",
+                   "Serie lette": 0, "Esito": e["error"]})
+      continue
+    for t in e["tabs"]:
+      meta = t["meta"]
+      period = meta.get("period", "")
+      week = t["week"] or e["week"] or (order + 1)
+      fase = re.sub(r"(?i)^\s*week\s*\d+\s*[-–:]*\s*", "", period).strip()
+      athlete = _resolve_athlete(meta.get("player") or t["tab"])
+      for r in t["rows"]:
+        rows.append({**r, "SETTIMANA": week, "FASE": fase, "ATHLETE": athlete,
+                     "SESSIONE": t["tab"]})
+      info.append({
+          "File": short,
+          "Scheda": t["tab"],
+          "Atleta": athlete,
+          "Periodo": period or "—",
+          "Serie lette": len(t["rows"]),
+          "Esito": "ok" if t["rows"] else "nessun carico trovato",
+      })
+  df_all = pd.DataFrame(rows)
+  if not df_all.empty:
+    key = df_all["ESERCIZIO"].str.lower()
+    canon = df_all["ESERCIZIO"].groupby(key).agg(lambda s: s.value_counts().index[0])
+    df_all["ESERCIZIO"] = key.map(canon)
+    df_all["SETTIMANA"] = df_all["SETTIMANA"].astype(int)
+  return df_all, pd.DataFrame(info)
+
+
 # Controllo automatico dei file: ogni 30 secondi verifica se i CSV sono
 # cambiati (nuovi file o file modificati) e, in caso, riesegue tutta l'app.
 @st.fragment(run_every=30)
@@ -1819,20 +2169,234 @@ elif st.session_state.page == "dataload":
           " `admin_token` dei secrets."
       )
 
+  tab_labels = [
+      "📋 Schede Settimanali",
+      "📈 Carichi & Massimali (tutti gli esercizi)",
+      "🏋️ Valutazione Forza & 1RM (Google Sheet)",
+      "📊 Tonnellaggio & Volume Pesi",
+  ]
   if admin_mode:
-    tab_edit, tab_log, tab_force_eval, tab1 = st.tabs([
-        "✍️ Inserisci Carichi",
-        "📈 Carichi & Massimali (tutti gli esercizi)",
-        "🏋️ Valutazione Forza & 1RM (Google Sheet)",
-        "📊 Tonnellaggio & Volume Pesi",
-    ])
+    all_tabs = st.tabs(["✍️ Inserisci Carichi"] + tab_labels)
+    tab_edit, rest_tabs = all_tabs[0], all_tabs[1:]
   else:
-    tab_edit = None
-    tab_log, tab_force_eval, tab1 = st.tabs([
-        "📈 Carichi & Massimali (tutti gli esercizi)",
-        "🏋️ Valutazione Forza & 1RM (Google Sheet)",
-        "📊 Tonnellaggio & Volume Pesi",
-    ])
+    tab_edit, rest_tabs = None, st.tabs(tab_labels)
+  tab_schede, tab_log, tab_force_eval, tab1 = rest_tabs
+
+  with tab_schede:
+    st.markdown("##### 📋 Schede Settimanali (lette dai tuoi Google Fogli)")
+    sources = load_schede_index()
+    if not sources:
+      st.info(
+          "ℹ️ Nessuna cartella o file collegato. Nel Google Sheet principale"
+          " crea una scheda chiamata **Settimane** e scrivi nella colonna A il"
+          " link della cartella Drive che contiene i tuoi file (anche con"
+          " sottocartelle per settimana), oppure, uno per riga, i link dei file."
+          " La cartella e i file devono essere condivisi come «Chiunque abbia il"
+          " link → Visualizzatore»."
+      )
+    else:
+      file_ids, folder_notes = list_schede_files(sources)
+      df_sch, info_sch = load_schede_settimanali(file_ids)
+      if allowed_athletes != "ALL" and not df_sch.empty:
+        df_sch = df_sch[df_sch["ATHLETE"].isin(allowed_athletes)]
+
+      with st.expander("🔎 File e schede lette", expanded=df_sch.empty):
+        st.caption(f"{len(file_ids)} file da leggere.")
+        for note in folder_notes:
+          st.caption(note)
+        if not info_sch.empty:
+          n_bad = int((info_sch["Esito"] != "ok").sum())
+          st.caption(
+              f"{info_sch['File'].nunique()} file, {len(info_sch)} schede:"
+              f" {len(info_sch) - n_bad} lette, {n_bad} con avvisi."
+          )
+          st.dataframe(
+              info_sch.sort_values("Esito", key=lambda s: s.eq("ok")),
+              use_container_width=True,
+              hide_index=True,
+          )
+        if st.button("🔄 Ricarica le schede ora", key="sch_reload"):
+          _schede_file_cache().clear()
+          load_schede_settimanali.clear()
+          list_schede_files.clear()
+          load_schede_index.clear()
+          st.rerun()
+
+      if df_sch.empty:
+        st.warning(
+            "Non riesco a leggere nessuna serie con carico dalle schede."
+            " Nell'elenco qui sopra trovi il motivo."
+        )
+      else:
+        atleti_sch = sorted(df_sch["ATHLETE"].unique())
+        settimane_sch = sorted(df_sch["SETTIMANA"].unique(), reverse=True)
+        fase_by_week = (
+            df_sch[df_sch["FASE"] != ""]
+            .groupby("SETTIMANA")["FASE"]
+            .agg(lambda s: s.value_counts().index[0])
+            .to_dict()
+        )
+
+        def _wlabel(w):
+          fase = fase_by_week.get(w)
+          return f"Week {int(w)}" + (f" — {fase}" if fase else "")
+
+        sessioni_sch = sorted(df_sch["SESSIONE"].unique())
+        cs1, cs2, cs3 = st.columns(3)
+        with cs1:
+          sel_a = st.selectbox(
+              "Atleta",
+              ["Tutti gli atleti"] + atleti_sch,
+              index=1 if len(atleti_sch) == 1 else 0,
+              key="sch_atleta",
+          )
+        with cs2:
+          sel_w = st.selectbox(
+              "Settimana", settimane_sch, format_func=_wlabel, key="sch_settimana"
+          )
+        with cs3:
+          opts_s = ["Tutte le sedute"] + sessioni_sch
+          sel_s = st.selectbox(
+              "Seduta",
+              opts_s,
+              index=opts_s.index("A") if "A" in opts_s else 0,
+              format_func=lambda s: SESSIONI_LABEL.get(s, s),
+              key="sch_seduta",
+          )
+        df_a = df_sch
+        if sel_a != "Tutti gli atleti":
+          df_a = df_a[df_a["ATHLETE"] == sel_a]
+        if sel_s != "Tutte le sedute":
+          df_a = df_a[df_a["SESSIONE"] == sel_s]
+
+        # --- Scheda della settimana -----------------------------------------
+        st.markdown(f"###### 🗓️ Scheda — {_wlabel(sel_w)}")
+        dw = df_a[df_a["SETTIMANA"] == sel_w]
+        if dw.empty:
+          st.info("Nessun carico per questa settimana.")
+        else:
+          rows_w = []
+          for (atl, sess, _sed, es), g in dw.groupby(
+              ["ATHLETE", "SESSIONE", "SEDUTA", "ESERCIZIO"], sort=False
+          ):
+            rows_w.append({
+                "Atleta": atl,
+                "Seduta": SESSIONI_LABEL.get(sess, sess),
+                "Esercizio": es,
+                "Serie (rip × kg)": "  |  ".join(
+                    f"{int(r)}×{w:g}" for r, w in zip(g["REPS"], g["PESO"])
+                ),
+                "RIR": g["RIR"].mean(),
+                "1RM stimato (kg)": g["E1RM"].max(),
+                "Tonnellaggio (kg)": g["TONNAGE"].sum(),
+                "Note": g["NOTE"].iloc[0],
+            })
+          st.dataframe(
+              pd.DataFrame(rows_w).round(1),
+              use_container_width=True,
+              hide_index=True,
+          )
+          st.caption(
+              "1RM stimato = Peso × (1 + (Reps + RIR) / 30), formula di Epley"
+              " (con RIR scritto a intervallo uso la media), calcolato fino a 10"
+              " ripetizioni. Per i manubri è il peso di un solo manubrio."
+          )
+
+        # --- Massimali per esercizio ----------------------------------------
+        st.markdown("###### 🏆 Massimali per esercizio (tutte le settimane)")
+        best_rows = []
+        for (atl, es), g in df_a.groupby(["ATHLETE", "ESERCIZIO"]):
+          g_e = g.dropna(subset=["E1RM"])
+          best = g_e.loc[g_e["E1RM"].idxmax()] if not g_e.empty else None
+          last_w = int(g["SETTIMANA"].max())
+          best_rows.append({
+              "Atleta": atl,
+              "Esercizio": es,
+              "1RM stimato max (kg)": best["E1RM"] if best is not None else None,
+              "Settimana del max": int(best["SETTIMANA"]) if best is not None else None,
+              "Carico max (kg)": g["PESO"].max(),
+              "Ultima settimana": last_w,
+              "Carico max ultima sett. (kg)": g[g["SETTIMANA"] == last_w]["PESO"].max(),
+              "Settimane registrate": int(g["SETTIMANA"].nunique()),
+          })
+        st.dataframe(
+            pd.DataFrame(best_rows).round(1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # --- Andamento per esercizio ----------------------------------------
+        st.markdown("###### 📈 Andamento per esercizio")
+        esercizi_sch = sorted(df_a["ESERCIZIO"].unique())
+        cm1, cm2 = st.columns(2)
+        with cm1:
+          sel_es_s = st.selectbox("Esercizio", esercizi_sch, key="sch_esercizio")
+        metriche_s = {
+            "1RM stimato (kg)": "E1RM",
+            "Carico massimo (kg)": "PESO_MAX",
+            "Tonnellaggio (kg)": "TONNAGE",
+        }
+        with cm2:
+          sel_m = st.radio(
+              "Mostra", list(metriche_s.keys()), horizontal=True, key="sch_metrica"
+          )
+        mcol = metriche_s[sel_m]
+        trend = (
+            df_a[df_a["ESERCIZIO"] == sel_es_s]
+            .groupby(["ATHLETE", "SETTIMANA"])
+            .agg(
+                E1RM=("E1RM", "max"),
+                PESO_MAX=("PESO", "max"),
+                TONNAGE=("TONNAGE", "sum"),
+            )
+            .reset_index()
+        )
+        plot_t = trend.dropna(subset=[mcol])
+        if plot_t.empty:
+          st.info("Nessun dato per questa misura (il 1RM non è calcolato oltre 10 ripetizioni).")
+        else:
+          st.altair_chart(
+              alt.Chart(plot_t)
+              .mark_line(point=True)
+              .encode(
+                  x=alt.X(
+                      "SETTIMANA:Q",
+                      title="Settimana",
+                      axis=alt.Axis(tickMinStep=1, format="d"),
+                  ),
+                  y=alt.Y(f"{mcol}:Q", title=sel_m, scale=alt.Scale(zero=False)),
+                  color=alt.Color("ATHLETE:N", title="Atleta"),
+                  tooltip=[
+                      "ATHLETE",
+                      alt.Tooltip("SETTIMANA:Q", title="Settimana", format="d"),
+                      alt.Tooltip("E1RM:Q", title="1RM stimato (kg)", format=".1f"),
+                      alt.Tooltip("PESO_MAX:Q", title="Carico max (kg)"),
+                      alt.Tooltip("TONNAGE:Q", title="Tonnellaggio (kg)", format=".0f"),
+                  ],
+              )
+              .properties(height=380),
+              use_container_width=True,
+          )
+
+          # --- Confronto tra atleti nella settimana scelta -------------------
+          if sel_a == "Tutti gli atleti":
+            cmp_w = plot_t[plot_t["SETTIMANA"] == sel_w]
+            if not cmp_w.empty:
+              st.write(f"**{sel_es_s} — {sel_m}, {_wlabel(sel_w)}**")
+              st.altair_chart(
+                  alt.Chart(cmp_w)
+                  .mark_bar(color="#2563eb")
+                  .encode(
+                      x=alt.X("ATHLETE:N", sort="-y", title=None),
+                      y=alt.Y(f"{mcol}:Q", title=sel_m),
+                      tooltip=[
+                          "ATHLETE",
+                          alt.Tooltip(f"{mcol}:Q", title=sel_m, format=".1f"),
+                      ],
+                  )
+                  .properties(height=340),
+                  use_container_width=True,
+              )
 
   if tab_edit is not None:
     with tab_edit:
