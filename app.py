@@ -1225,6 +1225,58 @@ def _parse_scheda_df(df):
   return meta, rows
 
 
+def lift_kind(name):
+  """Riconosce i tre alzati con 1RM (Epley), in italiano e in inglese.
+
+  Ritorna "Back Squat", "Front Squat", "Stacco Quadrabar" oppure None.
+  Esempi: Squat frontale, Trap Bar Deadlift, Hex Bar Deadlift, Stacco QB.
+  """
+  toks = _tokens(name)
+  compact = re.sub(r"[^a-z0-9]", "", _ascii_lower(name))
+
+  # Squat (back o front), escludendo le varianti che non sono lo squat classico
+  no_squat = toks & {
+      "split", "bulgarian", "bulgaro", "goblet", "overhead", "jump", "salto",
+  }
+  if not no_squat:
+    if "frontsquat" in compact or (
+        "squat" in compact and toks & {"front", "frontale"}
+    ):
+      return "Front Squat"
+    if "backsquat" in compact or (
+        "squat" in compact and toks & {"back", "dietro", "posteriore"}
+    ):
+      return "Back Squat"
+
+  # Stacco con quadrabar / trap bar (non gli stacchi rumeni, né i salti)
+  is_deadlift = "stacco" in compact or "deadlift" in compact or "dl" in toks
+  has_bar = any(
+      k in compact for k in ("trapbar", "hexbar", "quadrabar", "quadbar")
+  ) or bool(toks & {"qb", "tb", "hex", "trap"})
+  if (
+      is_deadlift
+      and has_bar
+      and not (
+          toks
+          & {"romanian", "rumeno", "rdl", "stiff", "single", "jump", "salto"}
+      )
+  ):
+    return "Stacco Quadrabar"
+  return None
+
+
+def uses_e1rm(name):
+  return lift_kind(name) is not None
+
+
+def _fmt_kg(w):
+  return f"{float(w):g}".replace(".", ",")
+
+
+def _fmt_set(w, reps):
+  return f"{_fmt_kg(w)} kg × {int(reps)}"
+
+
 def _fetch_workbook(file_id):
   """Scarica un intero file Google Sheet (tutte le schede) in un colpo solo."""
   url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
@@ -1370,7 +1422,7 @@ def _load_file_cached(file_id, cache):
     tabs, file_week = [], None
     for tab, df in book.items():
       meta, srows = _parse_scheda_df(df)
-      m = re.search(r"week\s*(\d+)", meta.get("period", ""), flags=re.I)
+      m = re.search(r"(?:week|settimana)\s*(\d+)", meta.get("period", ""), flags=re.I)
       wk = int(m.group(1)) if m else None
       if file_week is None and wk is not None:
         file_week = wk
@@ -1398,7 +1450,7 @@ def load_schede_settimanali(file_ids):
       meta = t["meta"]
       period = meta.get("period", "")
       week = t["week"] or e["week"] or (order + 1)
-      fase = re.sub(r"(?i)^\s*week\s*\d+\s*[-–:]*\s*", "", period).strip()
+      fase = re.sub(r"(?i)^\s*(?:week|settimana)\s*\d+\s*[-–:]*\s*", "", period).strip()
       athlete = _resolve_athlete(meta.get("player") or t["tab"])
       for r in t["rows"]:
         rows.append({**r, "SETTIMANA": week, "FASE": fase, "ATHLETE": athlete,
@@ -1417,6 +1469,10 @@ def load_schede_settimanali(file_ids):
     canon = df_all["ESERCIZIO"].groupby(key).agg(lambda s: s.value_counts().index[0])
     df_all["ESERCIZIO"] = key.map(canon)
     df_all["SETTIMANA"] = df_all["SETTIMANA"].astype(int)
+    # Gli alzati principali hanno sempre lo stesso nome, in italiano o in inglese
+    df_all["ESERCIZIO"] = df_all["ESERCIZIO"].map(lambda n: lift_kind(n) or n)
+    # 1RM (Epley) solo per Back Squat, Front Squat e Stacco quadrabar
+    df_all.loc[~df_all["ESERCIZIO"].map(uses_e1rm), "E1RM"] = float("nan")
   return df_all, pd.DataFrame(info)
 
 
@@ -1671,9 +1727,9 @@ elif st.session_state.page == "datajump":
       st.altair_chart(chart1, use_container_width=True)
       st.caption("🟠 Colonna / pallino arancione = giorno di partita")
 
-      st.markdown("##### 🚀 Salto Max (cm)")
+      st.markdown("##### 🚀 Salto Max (cm) — ultime 7 sedute")
       line2 = (
-          alt.Chart(daily_summary)
+          alt.Chart(daily_recent)
           .mark_line(point=True)
           .encode(
               x=alt.X("DATE_STR:N", title="Data Seduta"),
@@ -1682,7 +1738,7 @@ elif st.session_state.page == "datajump":
               tooltip=["DATE_STR", "ATHLETE", "MAX_GIORNO"],
           )
       )
-      match_pts = daily_summary[daily_summary["IS_MATCH"].astype(bool)]
+      match_pts = daily_recent[daily_recent["IS_MATCH"].astype(bool)]
       if match_pts.empty:
         chart2 = line2.properties(height=380)
       else:
@@ -2230,6 +2286,7 @@ elif st.session_state.page == "dataload":
       else:
         atleti_sch = sorted(df_sch["ATHLETE"].unique())
         settimane_sch = sorted(df_sch["SETTIMANA"].unique(), reverse=True)
+        sessioni_sch = sorted(df_sch["SESSIONE"].unique())
         fase_by_week = (
             df_sch[df_sch["FASE"] != ""]
             .groupby("SETTIMANA")["FASE"]
@@ -2241,15 +2298,9 @@ elif st.session_state.page == "dataload":
           fase = fase_by_week.get(w)
           return f"Week {int(w)}" + (f" — {fase}" if fase else "")
 
-        sessioni_sch = sorted(df_sch["SESSIONE"].unique())
         cs1, cs2, cs3 = st.columns(3)
         with cs1:
-          sel_a = st.selectbox(
-              "Atleta",
-              ["Tutti gli atleti"] + atleti_sch,
-              index=1 if len(atleti_sch) == 1 else 0,
-              key="sch_atleta",
-          )
+          sel_a = st.selectbox("Atleta", atleti_sch, key="sch_atleta")
         with cs2:
           sel_w = st.selectbox(
               "Settimana", settimane_sch, format_func=_wlabel, key="sch_settimana"
@@ -2263,100 +2314,86 @@ elif st.session_state.page == "dataload":
               format_func=lambda s: SESSIONI_LABEL.get(s, s),
               key="sch_seduta",
           )
-        df_a = df_sch
-        if sel_a != "Tutti gli atleti":
-          df_a = df_a[df_a["ATHLETE"] == sel_a]
+        df_a = df_sch[df_sch["ATHLETE"] == sel_a]
         if sel_s != "Tutte le sedute":
           df_a = df_a[df_a["SESSIONE"] == sel_s]
+        st.caption(
+            "Il 1RM stimato (formula di Epley) è calcolato solo per Back Squat,"
+            " Front Squat e Stacco quadrabar. Per tutti gli altri esercizi vedi il"
+            " carico massimo e le ripetizioni fatte con quel carico. Per i manubri"
+            " il peso è quello di un solo manubrio."
+        )
 
-        # --- Scheda della settimana -----------------------------------------
-        st.markdown(f"###### 🗓️ Scheda — {_wlabel(sel_w)}")
+        # --- Scheda della settimana ------------------------------------------
+        st.markdown(f"###### 🗓️ Scheda di {sel_a} — {_wlabel(sel_w)}")
         dw = df_a[df_a["SETTIMANA"] == sel_w]
         if dw.empty:
-          st.info("Nessun carico per questa settimana.")
+          st.info("Nessun carico per questa settimana e questa seduta.")
         else:
           rows_w = []
-          for (atl, sess, _sed, es), g in dw.groupby(
-              ["ATHLETE", "SESSIONE", "SEDUTA", "ESERCIZIO"], sort=False
+          for (sess, _sed, es), g in dw.groupby(
+              ["SESSIONE", "SEDUTA", "ESERCIZIO"], sort=False
           ):
+            top = g.sort_values(["PESO", "REPS"]).iloc[-1]
+            e1 = g["E1RM"].max()
             rows_w.append({
-                "Atleta": atl,
                 "Seduta": SESSIONI_LABEL.get(sess, sess),
                 "Esercizio": es,
-                "Serie (rip × kg)": "  |  ".join(
-                    f"{int(r)}×{w:g}" for r, w in zip(g["REPS"], g["PESO"])
+                "Carico massimo": _fmt_set(top["PESO"], top["REPS"]),
+                "1RM stimato (Epley)": f"{_fmt_kg(round(e1, 1))} kg" if pd.notna(e1) else "—",
+                "Tutte le serie (rip × kg)": "  |  ".join(
+                    f"{int(r)}×{_fmt_kg(w)}" for r, w in zip(g["REPS"], g["PESO"])
                 ),
-                "RIR": g["RIR"].mean(),
-                "1RM stimato (kg)": g["E1RM"].max(),
-                "Tonnellaggio (kg)": g["TONNAGE"].sum(),
                 "Note": g["NOTE"].iloc[0],
             })
           st.dataframe(
-              pd.DataFrame(rows_w).round(1),
-              use_container_width=True,
-              hide_index=True,
-          )
-          st.caption(
-              "1RM stimato = Peso × (1 + (Reps + RIR) / 30), formula di Epley"
-              " (con RIR scritto a intervallo uso la media), calcolato fino a 10"
-              " ripetizioni. Per i manubri è il peso di un solo manubrio."
+              pd.DataFrame(rows_w), use_container_width=True, hide_index=True
           )
 
-        # --- Massimali per esercizio ----------------------------------------
-        st.markdown("###### 🏆 Massimali per esercizio (tutte le settimane)")
-        best_rows = []
-        for (atl, es), g in df_a.groupby(["ATHLETE", "ESERCIZIO"]):
-          g_e = g.dropna(subset=["E1RM"])
-          best = g_e.loc[g_e["E1RM"].idxmax()] if not g_e.empty else None
+        # --- Massimali per esercizio -----------------------------------------
+        st.markdown(f"###### 🏆 Massimali di {sel_a} (tutte le settimane)")
+        rows_m = []
+        for es, g in df_a.groupby("ESERCIZIO"):
+          top = g.sort_values(["PESO", "REPS"]).iloc[-1]
           last_w = int(g["SETTIMANA"].max())
-          best_rows.append({
-              "Atleta": atl,
+          g_last = g[g["SETTIMANA"] == last_w]
+          top_last = g_last.sort_values(["PESO", "REPS"]).iloc[-1]
+          row = {
               "Esercizio": es,
-              "1RM stimato max (kg)": best["E1RM"] if best is not None else None,
-              "Settimana del max": int(best["SETTIMANA"]) if best is not None else None,
-              "Carico max (kg)": g["PESO"].max(),
+              "Carico massimo": _fmt_set(top["PESO"], top["REPS"]),
+              "Settimana del massimo": int(top["SETTIMANA"]),
               "Ultima settimana": last_w,
-              "Carico max ultima sett. (kg)": g[g["SETTIMANA"] == last_w]["PESO"].max(),
-              "Settimane registrate": int(g["SETTIMANA"].nunique()),
-          })
-        st.dataframe(
-            pd.DataFrame(best_rows).round(1),
-            use_container_width=True,
-            hide_index=True,
-        )
+              "Carico massimo ultima settimana": _fmt_set(
+                  top_last["PESO"], top_last["REPS"]
+              ),
+              "1RM stimato max (Epley)": "—",
+              "Settimana del 1RM": "—",
+          }
+          if g["E1RM"].notna().any():
+            best = g.loc[g["E1RM"].idxmax()]
+            row["1RM stimato max (Epley)"] = f"{_fmt_kg(round(best['E1RM'], 1))} kg"
+            row["Settimana del 1RM"] = int(best["SETTIMANA"])
+          rows_m.append(row)
+        st.dataframe(pd.DataFrame(rows_m), use_container_width=True, hide_index=True)
 
-        # --- Andamento per esercizio ----------------------------------------
-        st.markdown("###### 📈 Andamento per esercizio")
+        # --- Andamento per singolo esercizio ----------------------------------
+        st.markdown(f"###### 📈 Andamento di {sel_a} per esercizio")
         esercizi_sch = sorted(df_a["ESERCIZIO"].unique())
-        cm1, cm2 = st.columns(2)
-        with cm1:
-          sel_es_s = st.selectbox("Esercizio", esercizi_sch, key="sch_esercizio")
-        metriche_s = {
-            "1RM stimato (kg)": "E1RM",
-            "Carico massimo (kg)": "PESO_MAX",
-            "Tonnellaggio (kg)": "TONNAGE",
-        }
-        with cm2:
-          sel_m = st.radio(
-              "Mostra", list(metriche_s.keys()), horizontal=True, key="sch_metrica"
-          )
-        mcol = metriche_s[sel_m]
-        trend = (
-            df_a[df_a["ESERCIZIO"] == sel_es_s]
-            .groupby(["ATHLETE", "SETTIMANA"])
-            .agg(
-                E1RM=("E1RM", "max"),
-                PESO_MAX=("PESO", "max"),
-                TONNAGE=("TONNAGE", "sum"),
-            )
-            .reset_index()
-        )
-        plot_t = trend.dropna(subset=[mcol])
-        if plot_t.empty:
-          st.info("Nessun dato per questa misura (il 1RM non è calcolato oltre 10 ripetizioni).")
-        else:
-          st.altair_chart(
-              alt.Chart(plot_t)
+        grid = st.columns(2)
+        for k, es in enumerate(esercizi_sch):
+          g = df_a[df_a["ESERCIZIO"] == es]
+          pts = []
+          for wk, gw in g.groupby("SETTIMANA"):
+            top = gw.sort_values(["PESO", "REPS"]).iloc[-1]
+            serie = _fmt_set(top["PESO"], top["REPS"])
+            pts.append({"SETTIMANA": int(wk), "Misura": "Carico massimo (kg)",
+                        "Valore": float(top["PESO"]), "Serie": serie})
+            if gw["E1RM"].notna().any():
+              pts.append({"SETTIMANA": int(wk), "Misura": "1RM stimato (kg)",
+                          "Valore": float(gw["E1RM"].max()), "Serie": serie})
+          pdf = pd.DataFrame(pts)
+          chart_es = (
+              alt.Chart(pdf)
               .mark_line(point=True)
               .encode(
                   x=alt.X(
@@ -2364,39 +2401,28 @@ elif st.session_state.page == "dataload":
                       title="Settimana",
                       axis=alt.Axis(tickMinStep=1, format="d"),
                   ),
-                  y=alt.Y(f"{mcol}:Q", title=sel_m, scale=alt.Scale(zero=False)),
-                  color=alt.Color("ATHLETE:N", title="Atleta"),
+                  y=alt.Y("Valore:Q", title="kg", scale=alt.Scale(zero=False)),
+                  color=alt.Color(
+                      "Misura:N",
+                      title=None,
+                      scale=alt.Scale(
+                          domain=["1RM stimato (kg)", "Carico massimo (kg)"],
+                          range=["#2563eb", "#94a3b8"],
+                      ),
+                      legend=alt.Legend(orient="bottom"),
+                  ),
                   tooltip=[
-                      "ATHLETE",
                       alt.Tooltip("SETTIMANA:Q", title="Settimana", format="d"),
-                      alt.Tooltip("E1RM:Q", title="1RM stimato (kg)", format=".1f"),
-                      alt.Tooltip("PESO_MAX:Q", title="Carico max (kg)"),
-                      alt.Tooltip("TONNAGE:Q", title="Tonnellaggio (kg)", format=".0f"),
+                      "Misura",
+                      alt.Tooltip("Valore:Q", title="kg", format=".1f"),
+                      alt.Tooltip("Serie:N", title="Serie del carico massimo"),
                   ],
               )
-              .properties(height=380),
-              use_container_width=True,
+              .properties(height=260)
           )
-
-          # --- Confronto tra atleti nella settimana scelta -------------------
-          if sel_a == "Tutti gli atleti":
-            cmp_w = plot_t[plot_t["SETTIMANA"] == sel_w]
-            if not cmp_w.empty:
-              st.write(f"**{sel_es_s} — {sel_m}, {_wlabel(sel_w)}**")
-              st.altair_chart(
-                  alt.Chart(cmp_w)
-                  .mark_bar(color="#2563eb")
-                  .encode(
-                      x=alt.X("ATHLETE:N", sort="-y", title=None),
-                      y=alt.Y(f"{mcol}:Q", title=sel_m),
-                      tooltip=[
-                          "ATHLETE",
-                          alt.Tooltip(f"{mcol}:Q", title=sel_m, format=".1f"),
-                      ],
-                  )
-                  .properties(height=340),
-                  use_container_width=True,
-              )
+          with grid[k % 2]:
+            st.write(f"**{es}**")
+            st.altair_chart(chart_es, use_container_width=True)
 
   if tab_edit is not None:
     with tab_edit:
