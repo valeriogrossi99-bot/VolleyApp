@@ -124,10 +124,206 @@ st.markdown(
     h1, h2, h3 {
         color: #0f172a;
     }
+
+
+    /* UI refresh: cleaner spacing, softer surfaces and clearer interaction states */
+    :root { --cv-blue: #155eef; --cv-navy: #102a43; --cv-line: #dbe5f0; }
+    .block-container { padding-top: 1.6rem; padding-bottom: 2.5rem; max-width: 1600px; }
+    [data-testid="stSidebar"] { background: linear-gradient(180deg, #f7faff 0%, #edf3fa 100%); }
+    [data-testid="stSidebar"] .block-container { padding-top: 1.2rem; }
+    [data-testid="stMetric"] { border-radius: 16px !important; border: 1px solid var(--cv-line) !important; box-shadow: 0 5px 18px rgba(16,42,67,.055) !important; }
+    [data-testid="stTabs"] button[role="tab"] { border-radius: 10px 10px 0 0; padding: .65rem 1rem; font-weight: 650; }
+    div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] { gap: 1rem; }
+    div.stButton > button { border-radius: 14px !important; border-width: 1px !important; min-height: 4rem; }
+    div.stButton > button:focus-visible { outline: 3px solid rgba(21,94,239,.35) !important; outline-offset: 2px; }
+    [data-testid="stDataFrame"] { border: 1px solid var(--cv-line); border-radius: 12px; overflow: hidden; }
+    [data-testid="stExpander"] { border: 1px solid var(--cv-line); border-radius: 12px; }
+    .language-label { color: #334155; font-size: .9rem; padding: .25rem 0 .35rem; }
+    @media (max-width: 768px) {
+      .block-container { padding-left: 1rem; padding-right: 1rem; }
+      .player-card { padding: 16px; }
+      div.stButton > button { padding: 22px 14px !important; }
+    }
     </style>
 """,
     unsafe_allow_html=True,
 )
+
+
+# 2B. Lingua dell'interfaccia (la scelta resta valida durante la sessione)
+if "app_language" not in st.session_state:
+    st.session_state.app_language = "Italiano"
+st.sidebar.markdown("<div class='language-label'>🌐 <b>Language / Lingua</b></div>", unsafe_allow_html=True)
+st.sidebar.selectbox(
+    "Lingua / Language",
+    ["Italiano", "English"],
+    key="app_language",
+    label_visibility="collapsed",
+)
+
+# Traduzioni UI: i valori e i nomi originali dei dati degli atleti non vengono modificati.
+_EN_PHRASES = {
+    "Cuneo Volley Performance Hub": "Cuneo Volley Performance Hub",
+    "Performance & Analytics Hub": "Performance & Analytics Hub",
+    "Monitoraggio Salti, Elevazione & Fasce": "Jump, Height & Zone Monitoring",
+    "Monitoraggio Carichi, Massimali & Forza": "Load, Max Strength & Performance Monitoring",
+    "Monitoraggio Salti & Elevazione": "Jump & Elevation Monitoring",
+    "Carichi, Massimali & Valutazione Forza": "Loads, Max Strength & Strength Assessment",
+    "Torna alla Home": "Back to Home",
+    "Roster Completo": "Full Roster",
+    "Visualizzazione Dedicata": "Dedicated View",
+    "Filtri Selezione & Confronto": "Selection & Comparison Filters",
+    "Filtra per Ruolo": "Filter by Position",
+    "Nessun file CSV relativo ai salti trovato.": "No jump-tracking CSV files found.",
+    "Schede Settimanali": "Weekly Training Plans",
+    "Carichi & Massimali (tutti gli esercizi)": "Loads & Max Strength (all exercises)",
+    "Valutazione Forza & 1RM (Google Sheet)": "Strength Assessment & 1RM (Google Sheet)",
+    "Tonnellaggio & Volume Pesi": "Tonnage & Weight-Training Volume",
+    "Inserisci Carichi": "Enter Loads",
+    "Schede Settimanali (lette dai tuoi Google Fogli)": "Weekly Training Plans (from Google Sheets)",
+    "File e schede lette": "Files and plans read",
+    "Ricarica le schede ora": "Reload training plans",
+    "Nessun carico per questa settimana e questa seduta.": "No loads found for this week and session.",
+    "Inserisci una serie": "Enter a Set",
+    "Verifica collegamento con il Google Sheet": "Check Google Sheets connection",
+    "Esegui verifica": "Run check",
+    "Scrittura": "Write",
+    "Lettura": "Read",
+    "Giocatore": "Player",
+    "Giocatori": "Players",
+    "Atleta": "Athlete",
+    "Ruolo": "Position",
+    "Data": "Date",
+    "Note (facoltativo)": "Notes (optional)",
+    "Salva serie": "Save set",
+    "Nome del nuovo esercizio": "New exercise name",
+    "Nessun carico registrato per ora.": "No loads recorded yet.",
+    "Carichi, Massimali & Andamento per Esercizio": "Loads, Max Strength & Exercise Trends",
+    "Tonnellaggio Sollevato per Data e Giocatore (kg)": "Tonnage by Date and Player (kg)",
+    "Data Seduta Pesi": "Strength Session Date",
+    "Tonnellaggio Totale (kg)": "Total Tonnage (kg)",
+    "Nessun dato di tonnellaggio disponibile.": "No tonnage data available.",
+    "Salto Max (cm)": "Max Jump (cm)",
+    "Volume Salti Settimanali": "Weekly Jump Volume",
+    "Totale Salti per Giocatore": "Total Jumps by Player",
+    "Salto Max (cm) per Giocatore": "Max Jump (cm) by Player",
+    "Confronto tra due settimane di lavoro": "Compare Two Training Weeks",
+    "Servono dati di almeno due settimane per fare il confronto.": "At least two weeks of data are needed for comparison.",
+    "Scegli due settimane diverse per il confronto.": "Choose two different weeks to compare.",
+    "Volume Salti per Giorno": "Jump Volume by Day",
+    "Salto Max (cm) per Giorno": "Max Jump (cm) by Day",
+    "Distribuzione Fasce (% sui salti della settimana)": "Jump Zone Distribution (% of weekly jumps)",
+    "Dettaglio per Giorno": "Daily Details",
+    "Confronto per Giocatore": "Player Comparison",
+    "Scheda di": "Training Plan for",
+    "Massimali di": "Max Strength for",
+    "Andamento di": "Progress for",
+    "Filtra per": "Filter by",
+    "Tutti": "All",
+    "Settimana": "Week",
+    "Sessione": "Session",
+    "Esercizio": "Exercise",
+    "Carico": "Load",
+    "Ripetizioni": "Repetitions",
+    "Serie": "Sets",
+    "kg sollevati": "weight lifted (kg)",
+    "Scrivi il nome dell'esercizio.": "Enter the exercise name.",
+    "Inserisci i kg sollevati.": "Enter the lifted weight in kg.",
+    "Impossibile caricare il foglio Google di valutazione della forza.": "Unable to load the Google Sheet for strength assessment.",
+    "Modalità modifica attiva": "Edit mode enabled",
+    "Modalità modifica non attiva": "Edit mode is not enabled",
+    "Nessuna sessione trovata con i filtri attuali.": "No sessions match the current filters.",
+    "Pallino arancione = giorno di partita": "Orange dot = match day",
+    "Colonna / pallino arancione = giorno di partita": "Orange bar/dot = match day",
+    "Lingua / Language": "Language",
+    "Palleggiatore": "Setter",
+    "Schiacciatore": "Outside Hitter",
+    "Opposto": "Opposite",
+    "Centrale": "Middle Blocker",
+    "Libero": "Libero",
+    "Altezza": "Height",
+    "Classe": "Born",
+    "Nessuna cartella o file collegato.": "No linked folder or file found.",
+    "File CSV trovati": "CSV files found",
+    "sedute caricate": "sessions loaded",
+    "Ultime serie registrate per questo esercizio": "Latest sets recorded for this exercise",
+    "Calcolo con questa serie": "Calculation for this set",
+    "Valore": "Value",
+    "Risultato": "Result",
+    "Confronto": "Comparison",
+    "Seleziona": "Select",
+    "Selezione atleta": "Player selection",
+    "Filtri": "Filters",
+    "Visualizzazione": "View",
+    "Nessun dato disponibile.": "No data available.",
+    "Nessun dato trovato.": "No data found.",
+    "Nessun risultato": "No results",
+    "Ultime 7 sedute": "Last 7 sessions",
+    "per Giocatore": "by Player",
+    "per Giorno": "by Day",
+    "per Esercizio": "by Exercise",
+    "Volume": "Volume",
+    "Carico Totale": "Total Load",
+    "Massimale": "One-Rep Max",
+    "Massimali": "Max Strength",
+    "Valutazione Forza": "Strength Assessment",
+    "Settimane": "Weeks",
+    "Settimana di lavoro": "Training Week",
+    "Giorno": "Day",
+    "Sessione pesi": "Strength Session",
+    "Seduta": "Session",
+    "Fascia": "Zone",
+    "Percentuale": "Percentage",
+    "Totale": "Total",
+    "Media": "Average",
+    "Minimo": "Minimum",
+    "Massimo": "Maximum",
+    "Andamento": "Trend",
+}
+
+def _translate_ui(value):
+    if st.session_state.get("app_language", "Italiano") != "English":
+        return value
+    if isinstance(value, str):
+        # Lascia invariati blocchi CSS/HTML strutturali e traduce i testi visibili.
+        if "<style" in value or "<head>" in value:
+            return value
+        out = value
+        for src in sorted(_EN_PHRASES, key=len, reverse=True):
+            out = out.replace(src, _EN_PHRASES[src])
+        return out
+    return value
+
+def _wrap_ui_method(obj, name, positions=(0,)):
+    original = getattr(obj, name, None)
+    if not callable(original):
+        return
+    def wrapped(*args, **kwargs):
+        args = list(args)
+        for pos in positions:
+            if pos < len(args):
+                if name == "tabs" and isinstance(args[pos], (list, tuple)):
+                    args[pos] = [_translate_ui(item) for item in args[pos]]
+                else:
+                    args[pos] = _translate_ui(args[pos])
+        for key in ("label", "help", "placeholder"):
+            if key in kwargs and isinstance(kwargs[key], str):
+                kwargs[key] = _translate_ui(kwargs[key])
+        return original(*args, **kwargs)
+    try:
+        setattr(obj, name, wrapped)
+    except Exception:
+        pass
+
+# Intercetta solo testi dell'interfaccia; opzioni e dati degli atleti restano intatti.
+for _method in ("markdown", "title", "header", "subheader", "caption", "write", "text",
+                "info", "warning", "error", "success", "exception", "button", "metric",
+                "selectbox", "multiselect", "text_input", "text_area", "number_input",
+                "date_input", "time_input", "checkbox", "radio", "file_uploader", "download_button"):
+    _wrap_ui_method(st, _method)
+    _wrap_ui_method(st.sidebar, _method)
+_wrap_ui_method(st, "tabs")
+_wrap_ui_method(st.sidebar, "tabs")
 
 # 3. Inizializzazione Sessione e Gestione Parametri URL
 if "page" not in st.session_state:
