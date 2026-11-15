@@ -3,8 +3,12 @@ import pandas as pd
 import altair as alt
 import glob
 import os
+import re
 import html as html_lib
-from urllib.parse import quote
+import base64
+import requests
+import unicodedata
+from urllib.parse import quote, urljoin
 
 # ------------------------------------------------------------------------------
 # Roster, Ruoli e Info Giocatori originali di DataJump
@@ -107,14 +111,14 @@ LEGA_PLAYER_IDS = {
 }
 
 def _ascii_lower(text):
-    text = unicodedata.normalize("NFKD", str(text)) if 'unicodedata' in globals() else str(text)
+    text = unicodedata.normalize("NFKD", str(text))
     return text.encode("ascii", "ignore").decode().lower()
 
 def _slug(text):
-    return re.sub(r"[^a-z]", "", _ascii_lower(text)) if 're' in globals() else text.lower()
+    return re.sub(r"[^a-z]", "", _ascii_lower(text))
 
 def _tokens(text):
-    return {t for t in re.split(r"[^a-z]+", _ascii_lower(text)) if t} if 're' in globals() else set()
+    return {t for t in re.split(r"[^a-z]+", _ascii_lower(text)) if t}
 
 SURNAME_TO_PLAYER = {_slug(n.split()[-1]): n for n in ruoli_dict}
 
@@ -143,15 +147,15 @@ def _download_image(url, max_bytes=6_000_000):
 
 def _to_data_uri(raw, ctype):
     try:
-        from PIL import Image
         import io
+        from PIL import Image
         img = Image.open(io.BytesIO(raw)).convert("RGB")
         img.thumbnail((500, 500))
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85)
         raw, ctype = buf.getvalue(), "image/jpeg"
     except Exception: pass
-    return f"data:{ctype};base64," + base64.b64encode(raw).decode() if 'base64' in globals() else ""
+    return f"data:{ctype};base64," + base64.b64encode(raw).decode()
 
 @st.cache_data(ttl=600, show_spinner=False)
 def load_cuneo_site_photos():
