@@ -11,7 +11,7 @@ import unicodedata
 from urllib.parse import quote, urljoin
 
 # ------------------------------------------------------------------------------
-# Roster, Ruoli e Info Giocatori originali di DataJump
+# Configurazione e Dizionari originali
 # ------------------------------------------------------------------------------
 ruoli_dict = {
     "Bryan Argilagos": "Palleggiatore",
@@ -110,6 +110,9 @@ LEGA_PLAYER_IDS = {
     "Mimmo Cavaccini": "CAV-DOM-87", "Thibault Loubeyre": "LOU-THI-01",
 }
 
+# ------------------------------------------------------------------------------
+# Funzioni originali
+# ------------------------------------------------------------------------------
 def _ascii_lower(text):
     text = unicodedata.normalize("NFKD", str(text))
     return text.encode("ascii", "ignore").decode().lower()
@@ -259,7 +262,7 @@ def load_jump_data(files_signature):
     return df
 
 # ------------------------------------------------------------------------------
-# Render principale DataJump (Identico all'originale)
+# Render principale (Grafica e logica originali)
 # ------------------------------------------------------------------------------
 def render(allowed_athletes, ruoli_dict_global):
     col_h1, col_h2 = st.columns([8, 2])
